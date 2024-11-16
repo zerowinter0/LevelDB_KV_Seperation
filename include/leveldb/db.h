@@ -11,12 +11,15 @@
 #include "leveldb/export.h"
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
+#include <vector>
 
 namespace leveldb {
 
 // Update CMakeLists.txt if you change these
 static const int kMajorVersion = 1;
 static const int kMinorVersion = 23;
+using Field=std::pair<Slice,Slice>;
+using FieldArray=std::vector<std::pair<Slice, Slice>>;
 
 struct Options;
 struct ReadOptions;
@@ -86,6 +89,18 @@ class LEVELDB_EXPORT DB {
   // May return some other Status on an error.
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) = 0;
+
+  virtual std::string SerializeValue(const FieldArray& fields);
+
+  // 反序列化为字段数组
+  virtual void ParseValue(const std::string& value_str,FieldArray* res);
+
+  virtual Status Put_with_fields(const WriteOptions& options, const Slice& key,const FieldArray& fields);
+
+  virtual Status Get_with_fields(const ReadOptions& options, const Slice& key,
+             FieldArray* fields);
+  
+  virtual Status Get_keys_by_field(const ReadOptions& options, const Field field,std::vector<std::string> *keys);
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must

@@ -1,7 +1,8 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
+#include <iostream>
+#include <fstream>
 #include "db/db_iter.h"
 
 #include "db/db_impl.h"
@@ -67,7 +68,14 @@ class DBIter : public Iterator {
   }
   Slice value() const override {
     assert(valid_);
-    return (direction_ == kForward) ? iter_->value() : saved_value_;
+    auto tmp_value= (direction_ == kForward) ? iter_->value() : saved_value_;
+    std::ifstream inFile("tmp.txt", std::ios::in | std::ios::binary);
+    uint64_t value_offset=*(uint64_t*)(tmp_value.data());
+    size_t value_size=*(size_t*)(tmp_value.data()+sizeof(uint64_t));
+    inFile.seekg(value_offset);
+    char *value_buf=new char[value_size];
+    inFile.read(value_buf,value_size);
+    return Slice(value_buf,value_size);
   }
   Status status() const override {
     if (status_.ok()) {

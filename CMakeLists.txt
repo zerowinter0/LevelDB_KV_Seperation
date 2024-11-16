@@ -517,3 +517,7 @@ if(LEVELDB_INSTALL)
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
   )
 endif(LEVELDB_INSTALL)
+add_executable(db_test1
+"${PROJECT_SOURCE_DIR}/test/test.cpp"
+      )
+target_link_libraries(db_test1 PRIVATE leveldb gtest)

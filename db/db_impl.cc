@@ -11,7 +11,8 @@
 #include <set>
 #include <string>
 #include <vector>
-
+#include <iostream>
+#include <fstream>
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -1161,6 +1162,18 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   mem->Unref();
   if (imm != nullptr) imm->Unref();
   current->Unref();
+  std::ifstream inFile("tmp.txt", std::ios::in | std::ios::binary);
+  if (!inFile.is_open()) {
+        std::cerr << "Failed to open file for writing!" << std::endl;
+        return Status::Corruption("Failed to open file for writing!");
+    }
+  uint64_t value_offset=*(uint64_t*)(value->c_str());
+  size_t value_size=*(size_t*)(value->c_str()+sizeof(uint64_t));
+  inFile.seekg(value_offset);
+  char value_buf[value_size];
+  inFile.read(value_buf,value_size);
+  inFile.close();
+  *value=std::string(value_buf,value_size);
   return s;
 }
 
@@ -1196,6 +1209,67 @@ void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   return DB::Put(o, key, val);
+}
+
+std::string DB::SerializeValue(const FieldArray& fields){
+  std::string res_="";
+  PutVarint64(&res_,(uint64_t)fields.size());
+  for(auto pr:fields){
+    PutLengthPrefixedSlice(&res_, pr.first);
+    PutLengthPrefixedSlice(&res_, pr.second);
+  }
+  return res_;
+}
+
+  // 反序列化为字段数组
+void DB::ParseValue(const std::string& value_str,FieldArray* res){
+  Slice slice=Slice(value_str.c_str());
+  uint64_t siz;
+  bool tmpres=GetVarint64(&slice,&siz);
+  assert(tmpres);
+  res->clear();
+  for(int i=0;i<siz;i++){
+    Slice value_name;
+    Slice value;
+    tmpres=GetLengthPrefixedSlice(&slice,&value_name);
+    assert(tmpres);
+    tmpres=GetLengthPrefixedSlice(&slice,&value);
+    assert(tmpres);
+    res->emplace_back(value_name,value);
+  }
+}
+
+Status DB::Put_with_fields(const WriteOptions& op, const Slice& key,const FieldArray& fields){
+  auto value=SerializeValue(fields);
+  return Put(op,key,value);
+}
+Status DB::Get_with_fields(const ReadOptions& options, const Slice& key,FieldArray* fields){
+  std::string* value;
+  auto status=Get(options,key,value);
+  if(!status.ok())return status;
+  ParseValue(*value,fields);
+  return status;
+}
+Status DB::Get_keys_by_field(const ReadOptions& options, const Field field,std::vector<std::string> *keys){
+  auto it=NewIterator(options);
+  it->SeekToFirst();
+  keys->clear();
+  while(it->Valid()){
+    auto val=it->value();
+    FieldArray arr;
+    auto str_val=std::string(val.data(),val.size());
+    ParseValue(str_val,&arr);
+    for(auto pr:arr){
+      if(pr.first==field.first&&pr.second==field.second){
+        Slice key=it->key();
+        keys->push_back(std::string(key.data(),key.size()));
+        break;
+      }
+    }
+    it->Next();
+  }
+  delete it;
+  return Status::OK();
 }
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
@@ -1487,7 +1561,20 @@ void DBImpl::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
   WriteBatch batch;
-  batch.Put(key, value);
+  std::ofstream valueFile("tmp.txt", std::ios::app | std::ios::binary);
+  if (!valueFile.is_open()) {
+        std::cerr << "Failed to open file for writing!" << std::endl;
+        return Status::Corruption("Failed to open file for writing!");
+    }
+  uint64_t offset=valueFile.tellp();
+  valueFile.write(value.data(),value.size());
+  valueFile.close();
+  auto value_len=value.size();
+  char *new_value_buf=new char[sizeof(uint64_t)+sizeof(size_t)];
+  memcpy(new_value_buf,(void*)(&offset),sizeof(uint64_t));
+  memcpy(new_value_buf+sizeof(uint64_t),(void*)(&value_len),sizeof(size_t));
+  Slice new_value=Slice(new_value_buf,sizeof(uint64_t)+sizeof(size_t));
+  batch.Put(key, new_value);
   return Write(opt, &batch);
 }
 

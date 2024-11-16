@@ -35,6 +35,18 @@ class DBImpl : public DB {
 
   ~DBImpl() override;
 
+  //   // 序列化为字符串
+  // std::string SerializeValue(const FieldArray& fields)override;
+
+  // // 反序列化为字段数组
+  // FieldArray ParseValue(const std::string& value_str)override;
+
+  // Status Put_with_fields(const WriteOptions& options, const Slice& key,const FieldArray& fields)override;
+
+  // Status Get_with_fields(const ReadOptions& options, const Slice& key,
+  //            FieldArray* fields)override;
+
+
   // Implementations of the DB interface
   Status Put(const WriteOptions&, const Slice& key,
              const Slice& value) override;

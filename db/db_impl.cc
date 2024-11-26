@@ -1162,18 +1162,21 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   mem->Unref();
   if (imm != nullptr) imm->Unref();
   current->Unref();
-  std::ifstream inFile("tmp.txt", std::ios::in | std::ios::binary);
-  if (!inFile.is_open()) {
-        std::cerr << "Failed to open file for writing!" << std::endl;
-        return Status::Corruption("Failed to open file for writing!");
-    }
-  uint64_t value_offset=*(uint64_t*)(value->c_str());
-  size_t value_size=*(size_t*)(value->c_str()+sizeof(uint64_t));
-  inFile.seekg(value_offset);
-  char value_buf[value_size];
-  inFile.read(value_buf,value_size);
-  inFile.close();
-  *value=std::string(value_buf,value_size);
+
+  if(value->c_str()[0]==0x00){
+    *value=value->substr(1);
+    return s;
+  }
+  Slice value_log_slice=Slice(value->c_str()+1,value->length());
+  uint64_t file_id,valuelog_offset,valuelog_len;
+  bool res=GetVarint64(&value_log_slice,&file_id);
+  if(!res)return Status::Corruption("can't decode file id");
+  res=GetVarint64(&value_log_slice,&valuelog_offset);
+  if(!res)return Status::Corruption("can't decode valuelog offset");
+  res=GetVarint64(&value_log_slice,&valuelog_len);
+  if(!res)return Status::Corruption("can't decode valuelog len");
+  ReadValueLog(file_id,valuelog_offset,valuelog_len,&value_log_slice);
+  *value=std::string(value_log_slice.data(),value_log_slice.size());
   return s;
 }
 
@@ -1297,6 +1300,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
+    WriteBatchInternal::ConverToValueLog(write_batch,this);
     WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
     last_sequence += WriteBatchInternal::Count(write_batch);
 
@@ -1556,25 +1560,54 @@ void DBImpl::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
 
   v->Unref();
 }
+std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> DBImpl::WriteValueLog(std::vector<Slice> values){
+  //lock
+  std::string file_name_=std::to_string(valuelogfile_number_)+".VALUELOG";
+  std::ofstream valueFile(file_name_, std::ios::app | std::ios::binary);
+  if (!valueFile.is_open()) {
+        assert(0);
+    }
+  uint64_t offset=valueFile.tellp();
+  std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> res;
+  for(int i=0;i<values.size();i++){
+    int len=values[i].size();
+    valueFile.write(values[i].data(),len);
+    res.push_back({valuelogfile_number_,{offset,len}});
+    offset+=len;
+  }
+  //unlock
+  valueFile.close();
+  return res;
+}
+
+void DBImpl::addNewValueLog(){
+  //lock
+  valuelogfile_number_=versions_->NewFileNumber();
+  //unlock
+}
+
+Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,uint64_t len,Slice* value){
+  //lock_shared
+  std::string file_name_=std::to_string(valuelogfile_number_)+".VALUELOG";
+  std::ifstream inFile(file_name_, std::ios::in | std::ios::binary);
+  if (!inFile.is_open()) {
+      std::cerr << "Failed to open file for writing!" << std::endl;
+      return Status::Corruption("Failed to open file for writing!");
+  }
+  inFile.seekg(offset);
+  char *value_buf=new char[len];
+  inFile.read(value_buf,len);
+  inFile.close();
+  value=new Slice(value_buf,len);
+  return Status::OK();
+  //unlock_shared
+}
 
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
   WriteBatch batch;
-  std::ofstream valueFile("tmp.txt", std::ios::app | std::ios::binary);
-  if (!valueFile.is_open()) {
-        std::cerr << "Failed to open file for writing!" << std::endl;
-        return Status::Corruption("Failed to open file for writing!");
-    }
-  uint64_t offset=valueFile.tellp();
-  valueFile.write(value.data(),value.size());
-  valueFile.close();
-  auto value_len=value.size();
-  char *new_value_buf=new char[sizeof(uint64_t)+sizeof(size_t)];
-  memcpy(new_value_buf,(void*)(&offset),sizeof(uint64_t));
-  memcpy(new_value_buf+sizeof(uint64_t),(void*)(&value_len),sizeof(size_t));
-  Slice new_value=Slice(new_value_buf,sizeof(uint64_t)+sizeof(size_t));
-  batch.Put(key, new_value);
+  batch.Put(key, value);
   return Write(opt, &batch);
 }
 

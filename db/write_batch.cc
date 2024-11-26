@@ -127,6 +127,34 @@ class MemTableInserter : public WriteBatch::Handler {
     sequence_++;
   }
 };
+class ValueLogInserter : public WriteBatch::Handler {
+  public:
+  WriteBatch writeBatch_;
+  DB* db_;
+
+  void Put(const Slice& key, const Slice& value) override {
+    Slice new_value;
+    std::string buf;
+    if(value.size()<100){
+      buf+=(char)(0x00);
+      buf.append(value.data(),value.size());
+    }
+    else{
+      buf+=(char)(0x01);
+      std::vector<Slice> v;
+      v.push_back(value);
+      auto res=db_->WriteValueLog(v);
+      PutVarint64(&buf,res[0].first);
+      PutVarint64(&buf,res[0].second.first);
+      PutVarint64(&buf,res[0].second.second);
+    }
+    new_value=Slice(buf);
+    writeBatch_.Put(key,new_value);  
+  }
+  void Delete(const Slice& key) override {
+    writeBatch_.Delete(key);
+  }
+};
 }  // namespace
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* memtable) {
@@ -134,6 +162,14 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* memtable) {
   inserter.sequence_ = WriteBatchInternal::Sequence(b);
   inserter.mem_ = memtable;
   return b->Iterate(&inserter);
+}
+
+Status WriteBatchInternal::ConverToValueLog(WriteBatch* b,DB* db_){
+  ValueLogInserter inserter;
+  inserter.writeBatch_=WriteBatch();
+  auto res=b->Iterate(&inserter);
+  *b=inserter.writeBatch_;
+  return res;
 }
 
 void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {

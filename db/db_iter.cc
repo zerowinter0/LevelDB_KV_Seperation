@@ -69,13 +69,20 @@ class DBIter : public Iterator {
   Slice value() const override {
     assert(valid_);
     auto tmp_value= (direction_ == kForward) ? iter_->value() : saved_value_;
-    std::ifstream inFile("tmp.txt", std::ios::in | std::ios::binary);
-    uint64_t value_offset=*(uint64_t*)(tmp_value.data());
-    size_t value_size=*(size_t*)(tmp_value.data()+sizeof(uint64_t));
-    inFile.seekg(value_offset);
-    char *value_buf=new char[value_size];
-    inFile.read(value_buf,value_size);
-    return Slice(value_buf,value_size);
+    if(tmp_value.data()[0]==0x00){
+      tmp_value.remove_prefix(1);
+      return tmp_value;
+    }
+    tmp_value.remove_prefix(1);
+    uint64_t file_id,valuelog_offset,valuelog_len;
+    bool res=GetVarint64(&tmp_value,&file_id);
+    if(!res)assert(0);
+    res=GetVarint64(&tmp_value,&valuelog_offset);
+    if(!res)assert(0);
+    res=GetVarint64(&tmp_value,&valuelog_len);
+    if(!res)assert(0);
+    db_->ReadValueLog(file_id,valuelog_offset,valuelog_len,&tmp_value);
+    return tmp_value;
   }
   Status status() const override {
     if (status_.ok()) {

@@ -9,6 +9,8 @@
 #include <deque>
 #include <set>
 #include <string>
+#include <mutex>
+#include <shared_mutex>
 
 #include "db/dbformat.h"
 #include "db/log_writer.h"
@@ -60,6 +62,9 @@ class DBImpl : public DB {
   bool GetProperty(const Slice& property, std::string* value) override;
   void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) override;
   void CompactRange(const Slice* begin, const Slice* end) override;
+  std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value)override;
+  void addNewValueLog()override;
+  Status ReadValueLog(uint64_t file_id, uint64_t offset,uint64_t len,Slice* value)override;
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -184,13 +189,15 @@ class DBImpl : public DB {
 
   // State below is protected by mutex_
   port::Mutex mutex_;
+  //std::shared_mutex value_log_mutex;
   std::atomic<bool> shutting_down_;
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
   MemTable* mem_;
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;
-  uint64_t logfile_number_ GUARDED_BY(mutex_);
+  uint64_t logfile_number_;
+  uint64_t valuelogfile_number_ GUARDED_BY(mutex_);
   log::Writer* log_;
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 

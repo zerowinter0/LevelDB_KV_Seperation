@@ -83,7 +83,7 @@ Status Get_keys_by_field(DB *db,const ReadOptions& options, const Field field,st
   return Status::OK();
 }
 
-TEST(TestTTL, OurTTL) {
+TEST(Test, CheckGetFields) {
     DB *db;
     WriteOptions writeOptions;
     ReadOptions readOptions;
@@ -123,8 +123,26 @@ TEST(TestTTL, OurTTL) {
     }
     ASSERT_TRUE(CompareFieldArray(fields1, res1));
     
-
     std::cout<<"get serialized value done"<<std::endl;
+    delete db;
+
+}
+
+TEST(Test, CheckSearchKey) {
+    DB *db;
+    ReadOptions readOptions;
+    if(OpenDB("testdb_for_XOY", &db).ok() == false) {
+        std::cerr << "open db failed" << std::endl;
+        abort();
+    }
+    std::string key1 = "k_1";
+    std::string key2 = "k_2";
+    
+    FieldArray fields1 = {
+        {"name", "Customer#000000001"},
+        {"address", "IVhzIApeRb"}, 
+        {"phone", "25-989-741-2988"}
+    };
 
     std::vector<std::string> keys = {key1, key2};
     std::vector<std::string> key_res;

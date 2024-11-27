@@ -90,17 +90,17 @@ class LEVELDB_EXPORT DB {
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) = 0;
 
-  virtual std::string SerializeValue(const FieldArray& fields);
+  // virtual std::string SerializeValue(const FieldArray& fields);
 
-  // 反序列化为字段数组
-  virtual void ParseValue(const std::string& value_str,FieldArray* res);
+  // // 反序列化为字段数组
+  // virtual void DeserializeValue(const std::string& value_str,FieldArray* res);
 
-  virtual Status Put_with_fields(const WriteOptions& options, const Slice& key,const FieldArray& fields);
+  // virtual Status Put_with_fields(const WriteOptions& options, const Slice& key,const FieldArray& fields);
 
-  virtual Status Get_with_fields(const ReadOptions& options, const Slice& key,
-             FieldArray* fields);
+  // virtual Status Get_with_fields(const ReadOptions& options, const Slice& key,
+  //            FieldArray* fields);
   
-  virtual Status Get_keys_by_field(const ReadOptions& options, const Field field,std::vector<std::string> *keys);
+  // virtual Status Get_keys_by_field(const ReadOptions& options, const Field field,std::vector<std::string> *keys);
 
   virtual std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value){
     assert(0);

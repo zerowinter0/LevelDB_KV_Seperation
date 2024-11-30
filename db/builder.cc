@@ -28,6 +28,15 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
       return s;
     }
 
+    {
+      auto tmp_value=iter->value();
+      if(tmp_value.data()[0]==(char)(0x01)){
+        tmp_value.remove_prefix(1);
+        assert(GetVarint64(&tmp_value,&meta->valuelog_id));
+      }
+      else meta->valuelog_id=0;
+    }
+
     TableBuilder* builder = new TableBuilder(options, file);
     meta->smallest.DecodeFrom(iter->key());
     Slice key;

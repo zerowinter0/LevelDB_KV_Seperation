@@ -10,6 +10,8 @@ using FieldArray=std::vector<std::pair<Slice, Slice>>;
 
 Status OpenDB(std::string dbName, DB **db) {
   Options options;
+  options.max_file_size=16*1024;
+  options.write_buffer_size=32*1024;
   options.create_if_missing = true;
   return DB::Open(options, dbName, db);
 }
@@ -165,7 +167,7 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
         abort();
     }
     std::vector<std::string> values;
-    for(int i=0;i<1000;i++){
+    for(int i=0;i<100000;i++){
         std::string key=std::to_string(i);
         std::string value;
         for(int j=0;j<1000;j++){
@@ -174,7 +176,7 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
         values.push_back(value);
         db->Put(writeOptions,key,value);
     }
-    for(int i=0;i<1000;i++){
+    for(int i=0;i<100000;i++){
         std::string key=std::to_string(i);
         std::string value;
         Status s=db->Get(readOptions,key,&value);

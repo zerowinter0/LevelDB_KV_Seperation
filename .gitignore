@@ -6,3 +6,7 @@
 # Build directory.
 build/
 out/
+
+# 忽略 third_party 目录及其内容
+third_party/
+testdb_for_XOY/

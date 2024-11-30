@@ -1214,66 +1214,6 @@ Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   return DB::Put(o, key, val);
 }
 
-std::string DB::SerializeValue(const FieldArray& fields){
-  std::string res_="";
-  PutVarint64(&res_,(uint64_t)fields.size());
-  for(auto pr:fields){
-    PutLengthPrefixedSlice(&res_, pr.first);
-    PutLengthPrefixedSlice(&res_, pr.second);
-  }
-  return res_;
-}
-
-  // 反序列化为字段数组
-void DB::ParseValue(const std::string& value_str,FieldArray* res){
-  Slice slice=Slice(value_str.c_str());
-  uint64_t siz;
-  bool tmpres=GetVarint64(&slice,&siz);
-  assert(tmpres);
-  res->clear();
-  for(int i=0;i<siz;i++){
-    Slice value_name;
-    Slice value;
-    tmpres=GetLengthPrefixedSlice(&slice,&value_name);
-    assert(tmpres);
-    tmpres=GetLengthPrefixedSlice(&slice,&value);
-    assert(tmpres);
-    res->emplace_back(value_name,value);
-  }
-}
-
-Status DB::Put_with_fields(const WriteOptions& op, const Slice& key,const FieldArray& fields){
-  auto value=SerializeValue(fields);
-  return Put(op,key,value);
-}
-Status DB::Get_with_fields(const ReadOptions& options, const Slice& key,FieldArray* fields){
-  std::string* value;
-  auto status=Get(options,key,value);
-  if(!status.ok())return status;
-  ParseValue(*value,fields);
-  return status;
-}
-Status DB::Get_keys_by_field(const ReadOptions& options, const Field field,std::vector<std::string> *keys){
-  auto it=NewIterator(options);
-  it->SeekToFirst();
-  keys->clear();
-  while(it->Valid()){
-    auto val=it->value();
-    FieldArray arr;
-    auto str_val=std::string(val.data(),val.size());
-    ParseValue(str_val,&arr);
-    for(auto pr:arr){
-      if(pr.first==field.first&&pr.second==field.second){
-        Slice key=it->key();
-        keys->push_back(std::string(key.data(),key.size()));
-        break;
-      }
-    }
-    it->Next();
-  }
-  delete it;
-  return Status::OK();
-}
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
   return DB::Delete(options, key);

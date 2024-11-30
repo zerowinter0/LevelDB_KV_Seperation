@@ -63,7 +63,9 @@ class DBImpl : public DB {
   void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) override;
   void CompactRange(const Slice* begin, const Slice* end) override;
   std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value)override;
-  void addNewValueLog()override;
+  void writeValueLogForCompaction(WritableFile* target_file,std::vector<Slice> value);
+  void addNewValueLog()override EXCLUSIVE_LOCKS_REQUIRED(mutex_);;
+  std::pair<WritableFile*,uint64_t> getNewValuelog();//use for compaction
   Status ReadValueLog(uint64_t file_id, uint64_t offset,uint64_t len,Slice* value)override;
 
   // Extra methods (for testing) that are not in the public DB interface
@@ -196,8 +198,10 @@ class DBImpl : public DB {
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;
+  WritableFile* valuelogfile_;
+  int valuelogfile_offset=0;
   uint64_t logfile_number_;
-  uint64_t valuelogfile_number_ GUARDED_BY(mutex_);
+  uint64_t valuelogfile_number_;
   log::Writer* log_;
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 

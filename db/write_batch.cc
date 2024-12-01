@@ -131,6 +131,10 @@ class ValueLogInserter : public WriteBatch::Handler {
   public:
   WriteBatch writeBatch_;
   DB* db_;
+  ValueLogInserter(WriteBatch writeBatch,DB* db){
+    writeBatch_=writeBatch;
+    db_=db;
+  }
 
   void Put(const Slice& key, const Slice& value) override {
     Slice new_value;
@@ -165,8 +169,7 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* memtable) {
 }
 
 Status WriteBatchInternal::ConverToValueLog(WriteBatch* b,DB* db_){
-  ValueLogInserter inserter;
-  inserter.writeBatch_=WriteBatch();
+  ValueLogInserter inserter(WriteBatch(),db_);
   auto res=b->Iterate(&inserter);
   *b=inserter.writeBatch_;
   return res;

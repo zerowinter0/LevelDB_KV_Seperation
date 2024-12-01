@@ -79,6 +79,7 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, new_files_[i].first);  // level
     PutVarint64(dst, f.number);
     PutVarint64(dst, f.file_size);
+    PutVarint64(dst, f.valuelog_id);
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
   }
@@ -178,6 +179,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       case kNewFile:
         if (GetLevel(&input, &level) && GetVarint64(&input, &f.number) &&
             GetVarint64(&input, &f.file_size) &&
+            GetVarint64(&input,&f.valuelog_id) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest)) {
           new_files_.push_back(std::make_pair(level, f));
@@ -246,6 +248,8 @@ std::string VersionEdit::DebugString() const {
     AppendNumberTo(&r, f.number);
     r.append(" ");
     AppendNumberTo(&r, f.file_size);
+    r.append(" ");
+    AppendNumberTo(&r, f.valuelog_id);
     r.append(" ");
     r.append(f.smallest.DebugString());
     r.append(" .. ");

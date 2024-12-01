@@ -10,6 +10,7 @@
 #include <set>
 #include <string>
 #include <mutex>
+#include <map>
 #include <shared_mutex>
 
 #include "db/dbformat.h"
@@ -203,6 +204,7 @@ class DBImpl : public DB {
   uint64_t logfile_number_;
   uint64_t valuelogfile_number_;
   log::Writer* log_;
+  std::map<uint64_t,uint64_t> oldvaluelog_ids;
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.

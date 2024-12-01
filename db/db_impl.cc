@@ -281,6 +281,10 @@ void DBImpl::RemoveObsoleteFiles() {
         }
         Log(options_.info_log, "Delete type=%d #%lld\n", static_cast<int>(type),
             static_cast<unsigned long long>(number));
+        if(oldvaluelog_ids.count(number)){
+        std::string valuelog_filename=ValueLogFileName(dbname_,oldvaluelog_ids[number]);
+          env_->RemoveFile(valuelog_filename);
+        }
       }
     }
   }
@@ -951,10 +955,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   std::string current_user_key;
   bool has_current_user_key = false;
   SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
-  std::set<uint64_t> old_valuelog_ids;
   for (int which = 0; which < 2; which++) {
     for (int i = 0; i < compact->compaction->num_input_files(which); i++) {
-      if(compact->compaction->input(which, i)->valuelog_id)old_valuelog_ids.emplace(compact->compaction->input(which, i)->valuelog_id);
+      if(compact->compaction->input(which, i)->valuelog_id)oldvaluelog_ids[compact->compaction->input(which, i)->number]=compact->compaction->input(which, i)->valuelog_id;
     }
   }
   while (input->Valid() && !shutting_down_.load(std::memory_order_acquire)) {
@@ -1090,13 +1093,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     status = input->status();
   }
   //not completely correct, should be written in new function, related to removeabsol...
-  if(status.ok()){
-    for(auto id:old_valuelog_ids){
-      auto valuelog_filename=ValueLogFileName(dbname_,id);
-      Status s=env_->RemoveFile(valuelog_filename);
-      assert(s.ok());
-    }
-  }
+  // if(status.ok()){
+  //   for(auto id:old_valuelog_ids){
+  //     auto valuelog_filename=ValueLogFileName(dbname_,id);
+  //     Status s=env_->RemoveFile(valuelog_filename);
+  //     assert(s.ok());
+  //   }
+  // }
   delete input;
   input = nullptr;
 

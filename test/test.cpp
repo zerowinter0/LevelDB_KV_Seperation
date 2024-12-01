@@ -167,7 +167,7 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
         abort();
     }
     std::vector<std::string> values;
-    for(int i=0;i<100000;i++){
+    for(int i=0;i<500000;i++){
         std::string key=std::to_string(i);
         std::string value;
         for(int j=0;j<1000;j++){
@@ -176,7 +176,7 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
         values.push_back(value);
         db->Put(writeOptions,key,value);
     }
-    for(int i=0;i<100000;i++){
+    for(int i=0;i<500000;i++){
         std::string key=std::to_string(i);
         std::string value;
         Status s=db->Get(readOptions,key,&value);

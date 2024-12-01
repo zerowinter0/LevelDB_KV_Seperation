@@ -1,108 +1,129 @@
-#include <cassert>  
-#include <string>  
+#include <cassert>
+#include <string>
 #include <iostream>
+#include <cmath>
 #include <chrono>
- 
-#include "leveldb/db.h"  
- 
-#define TEST_FREQUENCY  (10000)
- 
-char* randomstr()
-{
-    static char buf[1024];
-    int len = rand() % 768 + 255;
+#include "leveldb/db.h"
+
+// 配置
+const int TEST_EXPONENT = 4;
+const int TEST_FREQUENCY = static_cast<int>(std::pow(10, TEST_EXPONENT));
+const int MIN_STR_LEN = 255;
+const int MAX_STR_LEN = 1024;
+const std::string DB_PATH = "./db_benchmark";
+const std::string CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+// 多语言
+const std::string BASE_VALUE = "こんにちは世界！Hello World! Привет, мир! ¡Hola Mundo! 你好，世界！Bonjour le monde! Hallo Welt!";
+// 莎士比亚
+// const std::string BASE_VALUE = "To be, or not to be, that is the question: Whether 'tis nobler in the mind to suffer the slings and arrows of outrageous fortune, or to take arms against a sea of troubles and by opposing end them.";
+// 超长字符
+// const std::string BASE_VALUE = []() {
+//     std::string base = "壹贰叁肆伍陆柒捌玖拾";
+//     std::string long_text;
+//     for (int i = 0; i < 100; ++i) { // 重复 100 次
+//         long_text += base;
+//     }
+//     return long_text;
+// }();
+
+
+// 随机字符串生成
+std::string randomStr() {
+    int len = rand() % (MAX_STR_LEN - MIN_STR_LEN + 1) + MIN_STR_LEN;
+    std::string str(len, '\0');
     for (int i = 0; i < len; ++i) {
-        buf[i] = 'A' + rand() % 26;
+        str[i] = CHARSET[rand() % CHARSET.size()];
     }
-    buf[len] = '\0';
-    return buf;
+    return str;
 }
- 
-int main() 
-{
+
+// 计算并输出耗时的模板函数
+template<typename Func>
+void measureTime(const std::string& operation, Func func) {
+    auto start = std::chrono::system_clock::now();
+    func();
+    auto end = std::chrono::system_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    std::cout << TEST_FREQUENCY << "次" << operation << "耗时: "
+              << double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den
+              << "秒" << std::endl;
+}
+
+int main() {
     leveldb::DB* db;
     leveldb::Options options;
     options.create_if_missing = true;
- 
+
     // 打开数据库
-    leveldb::Status status = leveldb::DB::Open(options, "./testdb", &db);
+    leveldb::Status status = leveldb::DB::Open(options, DB_PATH, &db);
     assert(status.ok());
- 
+    std::cout << "数据库已打开: " << DB_PATH << std::endl;
+
     srand(2017);
-    std::string k[TEST_FREQUENCY];
+
+    // 生成测试数据
+    std::string keys[TEST_FREQUENCY];
     for (int i = 0; i < TEST_FREQUENCY; ++i) {
-        k[i] = (randomstr());
+        keys[i] = randomStr();
     }
-    std::string v("壹贰叁肆伍陆柒捌玖拾");
-    v.append(v).append(v).append(v).append(v).append(v);
- 
+    std::string value = BASE_VALUE;
+    for (int i = 0; i < 4; ++i) {
+        value += value; // 扩展 base value
+    }
+
     // 测试添加
-    {
-        auto start = std::chrono::system_clock::now();
+    measureTime("添加", [&]() {
         for (int i = 0; i < TEST_FREQUENCY; ++i) {
-            status = db->Put(leveldb::WriteOptions(), k[i], v);
+            status = db->Put(leveldb::WriteOptions(), keys[i], value);
             assert(status.ok());
         }
-        auto end = std::chrono::system_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
- 
-        std::cout << TEST_FREQUENCY <<"次添加耗时: "
-            << double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den
-            << "秒" << std::endl;
-    }
+    });
+
     // 测试获取
-    {
-        auto start = std::chrono::system_clock::now();
-        std::string v2[TEST_FREQUENCY];
+    measureTime("获取", [&]() {
+        std::string retrievedValues[TEST_FREQUENCY];
         for (int i = 0; i < TEST_FREQUENCY; ++i) {
-            status = db->Get(leveldb::ReadOptions(), k[i], &v2[i]);
+            status = db->Get(leveldb::ReadOptions(), keys[i], &retrievedValues[i]);
             assert(status.ok());
+            assert(retrievedValues[i] == value); // 验证获取结果
         }
-        auto end = std::chrono::system_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
- 
-        std::cout << TEST_FREQUENCY <<"次获取耗时: "
-            << double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den
-            << "秒" << std::endl;
-        // 验证获取结果是否正确
-        std::string ss;
-        for (int i = 0; i < TEST_FREQUENCY; ++i) {
-            if (v2[i] != v) {
-                std::cout << "第 " << i << " 个结果不正确" << std::endl;
-                std::cout << v2[i] << std::endl;
-            }
-        }
-    }
+    });
+
     // 测试修改
-    {
-        auto start = std::chrono::system_clock::now();
-        v.append(v);
+    measureTime("修改", [&]() {
+        std::string newValue = value + value;
         for (int i = 0; i < TEST_FREQUENCY; ++i) {
-            status = db->Put(leveldb::WriteOptions(), k[i], v);
+            status = db->Put(leveldb::WriteOptions(), keys[i], newValue);
             assert(status.ok());
         }
-        auto end = std::chrono::system_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
- 
-        std::cout << TEST_FREQUENCY <<"次修改耗时: "
-            << double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den
-            << "秒" << std::endl;
-    }
- 
+    });
+
     // 测试删除
-    {
-        auto start = std::chrono::system_clock::now();
+    measureTime("删除", [&]() {
         for (int i = 0; i < TEST_FREQUENCY; ++i) {
-            status = db->Delete(leveldb::WriteOptions(), k[i]);
+            status = db->Delete(leveldb::WriteOptions(), keys[i]);
             assert(status.ok());
         }
-        auto end = std::chrono::system_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
- 
-        std::cout << TEST_FREQUENCY <<"次删除耗时: "
-            << double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den
-            << "秒" << std::endl;
-    }
+    });
+
+    if (db) {
     delete db;
+    db = nullptr;
+    }
+    std::cout << "测试完成，数据库已关闭。" << std::endl;
+
+    // 删除数据库目录
+    #ifdef _WIN32
+        std::string command = "rd /s /q \"" + DB_PATH + "\""; // Windows 删除目录
+    #else
+        std::string command = "rm -rf \"" + DB_PATH + "\""; // Linux/macOS 删除目录
+    #endif
+    if (std::system(command.c_str()) == 0) {
+        std::cout << "数据库目录已删除: " << DB_PATH << std::endl;
+    } else {
+        std::cerr << "警告: 数据库目录删除失败，请手动检查!" << std::endl;
+    }
+    
     return 0;
 }

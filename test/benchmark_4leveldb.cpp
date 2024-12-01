@@ -1,6 +1,7 @@
 #include <cassert>
 #include <string>
 #include <iostream>
+#include <iomanip>
 #include <cmath>
 #include <chrono>
 #include "leveldb/db.h"
@@ -45,9 +46,18 @@ void measureTime(const std::string& operation, Func func) {
     func();
     auto end = std::chrono::system_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    std::cout << TEST_FREQUENCY << "次" << operation << "耗时: "
-              << double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den
-              << "秒" << std::endl;
+    
+    double seconds = double(duration.count()) * std::chrono::microseconds::period::num / std::chrono::microseconds::period::den;
+
+    // 输出格式化信息
+    std::cout << "Operation: " << operation << "\n";
+    std::cout << "Number of operations: " << TEST_FREQUENCY << "\n";
+    std::cout << "Total time: " 
+              << std::fixed << std::setprecision(6) << seconds << " seconds\n";
+    std::cout << "Average time per operation: " 
+              << std::fixed << std::setprecision(6) 
+              << (seconds / TEST_FREQUENCY) * 1e6 << " microseconds\n";
+    std::cout << "========================================\n";
 }
 
 int main() {
@@ -58,7 +68,7 @@ int main() {
     // 打开数据库
     leveldb::Status status = leveldb::DB::Open(options, DB_PATH, &db);
     assert(status.ok());
-    std::cout << "数据库已打开: " << DB_PATH << std::endl;
+    std::cout << "db open: " << DB_PATH << std::endl;
 
     srand(2017);
 
@@ -73,7 +83,7 @@ int main() {
     }
 
     // 测试添加
-    measureTime("添加", [&]() {
+    measureTime("ADD", [&]() {
         for (int i = 0; i < TEST_FREQUENCY; ++i) {
             status = db->Put(leveldb::WriteOptions(), keys[i], value);
             assert(status.ok());
@@ -81,7 +91,7 @@ int main() {
     });
 
     // 测试获取
-    measureTime("获取", [&]() {
+    measureTime("GET", [&]() {
         std::string retrievedValues[TEST_FREQUENCY];
         for (int i = 0; i < TEST_FREQUENCY; ++i) {
             status = db->Get(leveldb::ReadOptions(), keys[i], &retrievedValues[i]);
@@ -91,7 +101,7 @@ int main() {
     });
 
     // 测试修改
-    measureTime("修改", [&]() {
+    measureTime("UPDATE", [&]() {
         std::string newValue = value + value;
         for (int i = 0; i < TEST_FREQUENCY; ++i) {
             status = db->Put(leveldb::WriteOptions(), keys[i], newValue);
@@ -100,7 +110,7 @@ int main() {
     });
 
     // 测试删除
-    measureTime("删除", [&]() {
+    measureTime("DELETE", [&]() {
         for (int i = 0; i < TEST_FREQUENCY; ++i) {
             status = db->Delete(leveldb::WriteOptions(), keys[i]);
             assert(status.ok());
@@ -111,19 +121,21 @@ int main() {
     delete db;
     db = nullptr;
     }
-    std::cout << "测试完成，数据库已关闭。" << std::endl;
+    std::cout << "Test completed, database has been closed." << std::endl;
 
-    // 删除数据库目录
+    // Delete database directory
     #ifdef _WIN32
-        std::string command = "rd /s /q \"" + DB_PATH + "\""; // Windows 删除目录
+        std::string command = "rd /s /q \"" + DB_PATH + "\""; // Windows delete directory
     #else
-        std::string command = "rm -rf \"" + DB_PATH + "\""; // Linux/macOS 删除目录
+        std::string command = "rm -rf \"" + DB_PATH + "\""; // Linux/macOS delete directory
     #endif
+
     if (std::system(command.c_str()) == 0) {
-        std::cout << "数据库目录已删除: " << DB_PATH << std::endl;
+        std::cout << "Database directory has been successfully deleted" << std::endl;
     } else {
-        std::cerr << "警告: 数据库目录删除失败，请手动检查!" << std::endl;
+        std::cerr << "Warning: Failed to delete the database directory. Please check manually!" << std::endl;
     }
+
     
     return 0;
 }

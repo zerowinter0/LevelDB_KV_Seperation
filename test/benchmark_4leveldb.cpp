@@ -7,11 +7,11 @@
 #include "leveldb/db.h"
 
 // 配置
-const int TEST_EXPONENT = 4;
+const int TEST_EXPONENT = 5;
 const int TEST_FREQUENCY = static_cast<int>(std::pow(10, TEST_EXPONENT));
 const int MIN_STR_LEN = 255;
 const int MAX_STR_LEN = 1024;
-const std::string DB_PATH = "./db_benchmark";
+const std::string DB_PATH = "db_benchmark";
 const std::string CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 // 多语言

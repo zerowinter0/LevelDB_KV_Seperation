@@ -1044,7 +1044,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       Slice old_value=input->value();
       Slice new_value;
       std::string buf="";
-      if(old_value.data()[0]==(char)(0x00)){
+      if(old_value.size()==0||old_value.data()[0]==(char)(0x00)){//when it is a deletion, input->value() will be ""
         new_value=old_value;
       }
       else{

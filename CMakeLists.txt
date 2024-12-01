@@ -521,7 +521,7 @@ add_executable(db_test1
 "${PROJECT_SOURCE_DIR}/test/test.cpp"
       )
 target_link_libraries(db_test1 PRIVATE leveldb gtest)
-add_executable(db_test2
+add_executable(db_test_bench
 "${PROJECT_SOURCE_DIR}/test/benchmark_4leveldb.cpp"
       )
-target_link_libraries(db_test2 PRIVATE leveldb gtest)
+target_link_libraries(db_test_bench PRIVATE leveldb gtest)

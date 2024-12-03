@@ -63,11 +63,14 @@ class DBImpl : public DB {
   bool GetProperty(const Slice& property, std::string* value) override;
   void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) override;
   void CompactRange(const Slice* begin, const Slice* end) override;
-  std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value)override;
+  // std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value)override;
+  std::vector<std::pair<uint64_t,uint64_t>> WriteValueLog(std::vector<Slice> value)override;
   void writeValueLogForCompaction(WritableFile* target_file,std::vector<Slice> value);
   void addNewValueLog()override EXCLUSIVE_LOCKS_REQUIRED(mutex_);;
   std::pair<WritableFile*,uint64_t> getNewValuelog();//use for compaction
-  Status ReadValueLog(uint64_t file_id, uint64_t offset,uint64_t len,Slice* value)override;
+  // Status ReadValueLog(uint64_t file_id, uint64_t offset,uint64_t len,Slice* value)override;
+  Status ReadValueLog(uint64_t file_id, uint64_t offset,Slice* value)override;
+
 
   // Extra methods (for testing) that are not in the public DB interface
 

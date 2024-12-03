@@ -102,18 +102,28 @@ class LEVELDB_EXPORT DB {
   
   // virtual Status Get_keys_by_field(const ReadOptions& options, const Field field,std::vector<std::string> *keys);
 
-  virtual std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value){
+  // virtual std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value){
+  //   assert(0);
+  //   std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> v;
+  //   return v;
+  // }
+  virtual std::vector<std::pair<uint64_t,uint64_t>> WriteValueLog(std::vector<Slice> value){
     assert(0);
-    std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> v;
+    std::vector<std::pair<uint64_t,uint64_t>> v;
     return v;
   }
 
   virtual void addNewValueLog(){assert(0);}
 
-  virtual Status ReadValueLog(uint64_t file_id, uint64_t offset,uint64_t len,Slice* value){
+  // virtual Status ReadValueLog(uint64_t file_id, uint64_t offset,uint64_t len,Slice* value){
+  //   assert(0);  // Not implemented
+  //   return Status::Corruption("not imp");
+  // }
+  virtual Status ReadValueLog(uint64_t file_id, uint64_t offset,Slice* value){
     assert(0);  // Not implemented
     return Status::Corruption("not imp");
   }
+
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must

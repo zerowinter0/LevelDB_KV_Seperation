@@ -149,8 +149,9 @@ class ValueLogInserter : public WriteBatch::Handler {
       v.push_back(value);
       auto res=db_->WriteValueLog(v);
       PutVarint64(&buf,res[0].first);
-      PutVarint64(&buf,res[0].second.first);
-      PutVarint64(&buf,res[0].second.second);
+      // PutVarint64(&buf,res[0].second.first);
+      // PutVarint64(&buf,res[0].second.second);
+      PutVarint64(&buf,res[0].second);
     }
     new_value=Slice(buf);
     writeBatch_.Put(key,new_value);  

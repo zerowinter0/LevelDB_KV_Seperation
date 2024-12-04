@@ -1234,7 +1234,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   mem->Unref();
   if (imm != nullptr) imm->Unref();
   current->Unref();
-
+  if(!s.ok())return s;
   if(value->c_str()[0]==0x00){
     *value=value->substr(1);
     return s;

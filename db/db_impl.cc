@@ -1703,7 +1703,7 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
   // Open the file in binary mode for reading
   std::ifstream inFile(file_name_, std::ios::in | std::ios::binary);
   if (!inFile.is_open()) {
-    std::cerr << "Failed to open file: " << file_name_ << " for reading!"
+    std::cerr << "Failed to open file: " << file_name_ << " for read valuelog!"
               << std::endl;
     return Status::Corruption("Failed to open file for reading!");
   }
@@ -1826,6 +1826,7 @@ void DBImpl::GarbageCollect() {
         fs::is_regular_file(fs::status(cur_log_file)) &&
         IsValueLogFile(cur_log_file.path().filename().string())) {
       std::string valuelog_name = cur_log_file.path().string();
+      std::cout << valuelog_name << std::endl;
       uint64_t cur_log_number = GetValueLogID(valuelog_name);
       std::cout << "check point 1" << std::endl;
       uint64_t new_log_number = versions_->NewFileNumber();
@@ -1851,6 +1852,8 @@ void DBImpl::GarbageCollect() {
       }
 
       uint64_t current_offset = 0;
+      uint64_t tmp_offset = 0;
+
       int cnt=0;
 
       std::cout << "check point 3" << std::endl;
@@ -1858,14 +1861,16 @@ void DBImpl::GarbageCollect() {
     // Open the file in binary mode for reading
       std::ifstream cur_valuelog(valuelog_name, std::ios::in | std::ios::binary);
       if (!cur_valuelog.is_open()) {
-        std::cerr << "Failed to open file: " << valuelog_name << " for reading!"
+        std::cerr << "Failed to open file: " << valuelog_name << " for reading cur_valuelog!"
                   << std::endl;
         continue;
       }
 
       while (true) {
+        tmp_offset=current_offset;
         ++cnt;
-        std::cout << cnt << std::endl;
+        std::cout << cnt <<"   "<<current_offset<< std::endl;
+        
 
         // 读取一个 kv 对
         uint64_t key_len, value_len;
@@ -1893,9 +1898,11 @@ void DBImpl::GarbageCollect() {
           std::cerr << "Failed to read file: " << valuelog_name << std::endl;
           break;
         }
+        // 更新当前偏移
+        current_offset += sizeof(uint64_t);
 
         // Now seek to the actual key position and read the key
-        cur_valuelog.seekg(current_offset + sizeof(uint64_t));
+        cur_valuelog.seekg(current_offset);
         char* key_buf = new char[key_len];
         cur_valuelog.read(key_buf, key_len);
         if (!cur_valuelog.good()) {
@@ -1905,12 +1912,14 @@ void DBImpl::GarbageCollect() {
           std::cerr << "Failed to read file: " << valuelog_name << std::endl;
           break;
         }
+        current_offset += key_len;
+        
 
         // Assign the read key data to the Slice
         key = Slice(key_buf, key_len);
 
         // Read the length of the value
-        cur_valuelog.seekg(current_offset + sizeof(uint64_t) + key_len);
+        cur_valuelog.seekg(current_offset);
         char* value_buf_len = new char[sizeof(uint64_t)];
         cur_valuelog.read(value_buf_len, sizeof(uint64_t));
         uint64_t val_len = 0;
@@ -1924,9 +1933,11 @@ void DBImpl::GarbageCollect() {
           std::cerr << "Failed to read file: " << valuelog_name << std::endl;
           break;
         }
+        // 更新当前偏移
+        current_offset += sizeof(uint64_t);
 
         // Now seek to the actual data position and read the value
-        cur_valuelog.seekg(current_offset + sizeof(uint64_t) + key_len + sizeof(uint64_t));
+        cur_valuelog.seekg(current_offset);
         char* value_buf = new char[val_len];
         cur_valuelog.read(value_buf, val_len);
         if (!cur_valuelog.good()) {
@@ -1938,6 +1949,7 @@ void DBImpl::GarbageCollect() {
           std::cerr << "Failed to read file: " << valuelog_name << std::endl;
           break;
         }
+        current_offset += val_len;
 
         // Assign the read value data to the Slice
         value = Slice(value_buf, val_len);
@@ -1962,7 +1974,7 @@ void DBImpl::GarbageCollect() {
         ParseStoredValue(stored_value, stored_valuelog_id,
                          stored_offset);  // 假设解析函数
         if (stored_valuelog_id != GetValueLogID(valuelog_name) ||
-            stored_offset != current_offset) {
+            stored_offset != tmp_offset) {
           // 记录无效，跳过
           continue;
         }
@@ -1973,10 +1985,6 @@ void DBImpl::GarbageCollect() {
                     << std::endl;
           continue;
         }
-
-        // 更新当前偏移
-        current_offset +=
-            sizeof(key_len) + key.size() + sizeof(value_len) + value.size();
       }
 
       // 清理旧文件（如果需要）

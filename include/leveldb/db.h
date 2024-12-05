@@ -107,7 +107,7 @@ class LEVELDB_EXPORT DB {
   //   std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> v;
   //   return v;
   // }
-  virtual std::vector<std::pair<uint64_t,uint64_t>> WriteValueLog(std::vector<Slice> value){
+  virtual std::vector<std::pair<uint64_t,uint64_t>> WriteValueLog(std::vector<std::pair<Slice,Slice>> value){
     assert(0);
     std::vector<std::pair<uint64_t,uint64_t>> v;
     return v;
@@ -119,7 +119,7 @@ class LEVELDB_EXPORT DB {
   //   assert(0);  // Not implemented
   //   return Status::Corruption("not imp");
   // }
-  virtual Status ReadValueLog(uint64_t file_id, uint64_t offset,Slice* value){
+  virtual Status ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key, Slice* value){
     assert(0);  // Not implemented
     return Status::Corruption("not imp");
   }

@@ -5,19 +5,20 @@
 #ifndef STORAGE_LEVELDB_DB_DB_IMPL_H_
 #define STORAGE_LEVELDB_DB_DB_IMPL_H_
 
-#include <atomic>
-#include <deque>
-#include <set>
-#include <string>
-#include <mutex>
-#include <map>
-#include <shared_mutex>
-
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
+#include <atomic>
+#include <deque>
+#include <map>
+#include <mutex>
+#include <set>
+#include <shared_mutex>
+#include <string>
+
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+
 #include "port/port.h"
 #include "port/thread_annotations.h"
 
@@ -44,11 +45,11 @@ class DBImpl : public DB {
   // // 反序列化为字段数组
   // FieldArray ParseValue(const std::string& value_str)override;
 
-  // Status Put_with_fields(const WriteOptions& options, const Slice& key,const FieldArray& fields)override;
+  // Status Put_with_fields(const WriteOptions& options, const Slice& key,const
+  // FieldArray& fields)override;
 
   // Status Get_with_fields(const ReadOptions& options, const Slice& key,
   //            FieldArray* fields)override;
-
 
   // Implementations of the DB interface
   Status Put(const WriteOptions&, const Slice& key,
@@ -63,14 +64,19 @@ class DBImpl : public DB {
   bool GetProperty(const Slice& property, std::string* value) override;
   void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) override;
   void CompactRange(const Slice* begin, const Slice* end) override;
-  // std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value)override;
-  std::vector<std::pair<uint64_t,uint64_t>> WriteValueLog(std::vector<Slice> value)override;
-  void writeValueLogForCompaction(WritableFile* target_file,std::vector<Slice> value);
-  void addNewValueLog()override EXCLUSIVE_LOCKS_REQUIRED(mutex_);;
-  std::pair<WritableFile*,uint64_t> getNewValuelog();//use for compaction
-  // Status ReadValueLog(uint64_t file_id, uint64_t offset,uint64_t len,Slice* value)override;
-  Status ReadValueLog(uint64_t file_id, uint64_t offset,Slice* value)override;
-
+  // std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>>
+  // WriteValueLog(std::vector<Slice> value)override;
+  std::vector<std::pair<uint64_t, uint64_t>> WriteValueLog(
+      std::vector<std::pair<Slice, Slice>> value) override;
+  void writeValueLogForCompaction(WritableFile* target_file,
+                                  std::vector<Slice> value);
+  void addNewValueLog() override EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  ;
+  std::pair<WritableFile*, uint64_t> getNewValuelog();  // use for compaction
+  // Status ReadValueLog(uint64_t file_id, uint64_t offset,Slice*
+  // value)override;
+  Status ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
+                      Slice* value) override;
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -161,9 +167,15 @@ class DBImpl : public DB {
   void RecordBackgroundError(const Status& s);
 
   void MaybeScheduleCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void MaybeScheduleGarbageCollect() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   static void BGWork(void* db);
+  static void BGWorkGC(void* db);
+
   void BackgroundCall();
   void BackgroundCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void BackgroundGarbageCollect() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void GarbageCollect() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
   void CleanupCompaction(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   Status DoCompactionWork(CompactionState* compact)
@@ -195,7 +207,7 @@ class DBImpl : public DB {
 
   // State below is protected by mutex_
   port::Mutex mutex_;
-  //std::shared_mutex value_log_mutex;
+  // std::shared_mutex value_log_mutex;
   std::atomic<bool> shutting_down_;
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
   MemTable* mem_;
@@ -203,11 +215,11 @@ class DBImpl : public DB {
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
   WritableFile* logfile_;
   WritableFile* valuelogfile_;
-  int valuelogfile_offset=0;
+  int valuelogfile_offset = 0;
   uint64_t logfile_number_;
   uint64_t valuelogfile_number_;
   log::Writer* log_;
-  std::map<uint64_t,uint64_t> oldvaluelog_ids;
+  std::map<uint64_t, uint64_t> oldvaluelog_ids;
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.
@@ -222,6 +234,10 @@ class DBImpl : public DB {
 
   // Has a background compaction been scheduled or is running?
   bool background_compaction_scheduled_ GUARDED_BY(mutex_);
+
+  // Has a background gc been scheduled or is running?
+  bool  background_garbage_collect_scheduled_ GUARDED_BY(mutex_);
+
 
   ManualCompaction* manual_compaction_ GUARDED_BY(mutex_);
 

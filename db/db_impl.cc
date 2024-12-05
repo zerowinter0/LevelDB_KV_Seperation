@@ -663,6 +663,15 @@ Status DBImpl::TEST_CompactMemTable() {
   return s;
 }
 
+void DBImpl::TEST_GarbageCollect() {
+  MaybeScheduleGarbageCollect();
+  // Finish current background compaction in the case where
+  // `background_work_finished_signal_` was signalled due to an error.
+  while (background_garbage_collect_scheduled_) {
+    background_work_finished_signal_.Wait();
+  }
+}
+
 void DBImpl::RecordBackgroundError(const Status& s) {
   mutex_.AssertHeld();
   if (bg_error_.ok()) {
@@ -725,8 +734,8 @@ void DBImpl::BackgroundCall() {
 
   background_compaction_scheduled_ = false;
 
-  // Check if garbage collection needs to be scheduled after compaction
-  MaybeScheduleGarbageCollect();
+  // // Check if garbage collection needs to be scheduled after compaction
+  // MaybeScheduleGarbageCollect();
 
   // Previous compaction may have produced too many files in a level,
   // so reschedule another compaction if needed.
@@ -735,7 +744,7 @@ void DBImpl::BackgroundCall() {
 }
 
 void DBImpl::BackgroundGarbageCollect() {
-  MutexLock l(&mutex_);
+  mutex_.AssertHeld();
   assert(background_garbage_collect_scheduled_);
 
   if (shutting_down_.load(std::memory_order_acquire)) {
@@ -1767,9 +1776,12 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
 
 // 判断文件是否为 valuelog 文件
 bool IsValueLogFile(const std::string& filename) {
-  return filename.find("valuelog_") ==
-         0;  // 简单判断文件名是否匹配 valuelog 前缀
+  // 检查文件是否以 ".valuelog" 结尾
+  const std::string suffix = ".valuelog";
+  return filename.size() > suffix.size() &&
+         filename.substr(filename.size() - suffix.size()) == suffix;
 }
+
 
 // 示例：解析 sstable 中的元信息
 void ParseStoredValue(const std::string& stored_value, uint64_t& valuelog_id,
@@ -1781,14 +1793,33 @@ void ParseStoredValue(const std::string& stored_value, uint64_t& valuelog_id,
 
 // 示例：获取 ValueLog 文件 ID
 uint64_t GetValueLogID(const std::string& valuelog_name) {
-  // 假设文件名中包含唯一的 ID，例如 "valuelog_1"
-  auto pos = valuelog_name.find_last_of('_');
-  return std::stoull(valuelog_name.substr(pos + 1));
+  // 使用 std::filesystem::path 解析文件名
+  std::filesystem::path file_path(valuelog_name);
+  std::string filename = file_path.filename().string();  // 获取文件名部分
+
+  // 查找文件名中的 '.' 位置，提取数字部分
+  auto pos = filename.find('.');
+  if (pos == std::string::npos) {
+    assert(0);
+  }
+
+  // 提取数字部分
+  std::string id_str = filename.substr(0, pos);
+  // 检查提取的部分是否为有效数字
+  for (char c : id_str) {
+    if (!isdigit(c)) {
+      assert(0);
+    }
+  }
+
+  return std::stoull(id_str);  // 转换为 uint64_t
 }
+
 
 // 垃圾回收实现
 void DBImpl::GarbageCollect() {
   // 遍历数据库目录，找到所有 valuelog 文件
+  Log(options_.info_log, "start gc ");
   auto files_set = fs::directory_iterator(dbname_);
   for (const auto& cur_log_file : files_set) {
     if (fs::exists(cur_log_file) &&
@@ -1796,6 +1827,7 @@ void DBImpl::GarbageCollect() {
         IsValueLogFile(cur_log_file.path().filename().string())) {
       std::string valuelog_name = cur_log_file.path().string();
       uint64_t cur_log_number = GetValueLogID(valuelog_name);
+      std::cout << "check point 1" << std::endl;
       uint64_t new_log_number = versions_->NewFileNumber();
       WritableFile* new_valuelog = nullptr;
       std::string new_valuelog_name = LogFileName(dbname_, new_log_number);
@@ -1807,13 +1839,7 @@ void DBImpl::GarbageCollect() {
         break;
       }
       addNewValueLog();
-
-      std::ifstream cur_valuelog(valuelog_name, std::ios::in | std::ios::binary);
-      if (!cur_valuelog.is_open()) {
-        std::cerr << "Failed to open ValueLog file: " << valuelog_name
-                  << std::endl;
-        continue;
-      }
+      std::cout << "check point 2" << std::endl;
 
       // whether to reopen
       std::ifstream new_valuelog_file(new_valuelog_name,
@@ -1825,16 +1851,96 @@ void DBImpl::GarbageCollect() {
       }
 
       uint64_t current_offset = 0;
-      uint64_t new_offset = 0;  // 新的 ValueLog 偏移
+      int cnt=0;
+
+      std::cout << "check point 3" << std::endl;
+
+    // Open the file in binary mode for reading
+      std::ifstream cur_valuelog(valuelog_name, std::ios::in | std::ios::binary);
+      if (!cur_valuelog.is_open()) {
+        std::cerr << "Failed to open file: " << valuelog_name << " for reading!"
+                  << std::endl;
+        continue;
+      }
 
       while (true) {
+        ++cnt;
+        std::cout << cnt << std::endl;
+
         // 读取一个 kv 对
         uint64_t key_len, value_len;
         Slice key, value;
-        Slice new_value;
 
-        ReadValueLog(cur_log_number, current_offset, &key, &value);
-        value = std::string(new_value.data(), new_value.size());
+        Status s = Status::OK();
+
+         // Seek to the position of key length
+        cur_valuelog.seekg(current_offset);
+
+        // Read the length of the key
+        char* key_buf_len = new char[sizeof(uint64_t)];
+        cur_valuelog.read(key_buf_len, sizeof(uint64_t));
+
+        if (cur_valuelog.eof()) {
+          delete[] key_buf_len;
+          break; // 正常退出条件：到达文件末尾
+        }
+
+        std::memcpy(&key_len, key_buf_len, sizeof(uint64_t));
+
+        if (!cur_valuelog.good()) {
+          delete[] key_buf_len;
+          cur_valuelog.close();
+          std::cerr << "Failed to read file: " << valuelog_name << std::endl;
+          break;
+        }
+
+        // Now seek to the actual key position and read the key
+        cur_valuelog.seekg(current_offset + sizeof(uint64_t));
+        char* key_buf = new char[key_len];
+        cur_valuelog.read(key_buf, key_len);
+        if (!cur_valuelog.good()) {
+          delete[] key_buf;
+          delete[] key_buf_len;
+          cur_valuelog.close();
+          std::cerr << "Failed to read file: " << valuelog_name << std::endl;
+          break;
+        }
+
+        // Assign the read key data to the Slice
+        key = Slice(key_buf, key_len);
+
+        // Read the length of the value
+        cur_valuelog.seekg(current_offset + sizeof(uint64_t) + key_len);
+        char* value_buf_len = new char[sizeof(uint64_t)];
+        cur_valuelog.read(value_buf_len, sizeof(uint64_t));
+        uint64_t val_len = 0;
+        std::memcpy(&val_len, value_buf_len, sizeof(uint64_t));
+
+        if (!cur_valuelog.good()) {
+          delete[] key_buf;
+          delete[] key_buf_len;
+          delete[] value_buf_len;
+          cur_valuelog.close();
+          std::cerr << "Failed to read file: " << valuelog_name << std::endl;
+          break;
+        }
+
+        // Now seek to the actual data position and read the value
+        cur_valuelog.seekg(current_offset + sizeof(uint64_t) + key_len + sizeof(uint64_t));
+        char* value_buf = new char[val_len];
+        cur_valuelog.read(value_buf, val_len);
+        if (!cur_valuelog.good()) {
+          delete[] key_buf;
+          delete[] key_buf_len;
+          delete[] value_buf_len;
+          delete[] value_buf;
+          cur_valuelog.close();
+          std::cerr << "Failed to read file: " << valuelog_name << std::endl;
+          break;
+        }
+
+        // Assign the read value data to the Slice
+        value = Slice(value_buf, val_len);
 
         // 检查 key 是否在 sstable 中存在
         std::string stored_value;
@@ -1868,10 +1974,6 @@ void DBImpl::GarbageCollect() {
           continue;
         }
 
-        // 更新偏移
-        new_offset +=
-            sizeof(key_len) + key.size() + sizeof(value_len) + value.size();
-
         // 更新当前偏移
         current_offset +=
             sizeof(key_len) + key.size() + sizeof(value_len) + value.size();
@@ -1882,6 +1984,9 @@ void DBImpl::GarbageCollect() {
       new_valuelog_file.close();
 
       std::remove(valuelog_name.c_str());  // 删除旧的 ValueLog 文件
+      Log(options_.info_log, "remove file during gc %s", valuelog_name.c_str());
+      Log(options_.info_log, "add file during gc %s", new_valuelog_name.c_str());
+
     }
   }
 }

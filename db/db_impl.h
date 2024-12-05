@@ -86,6 +86,9 @@ class DBImpl : public DB {
   // Force current memtable contents to be compacted.
   Status TEST_CompactMemTable();
 
+  void TEST_GarbageCollect() override;
+
+
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.

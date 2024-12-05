@@ -158,7 +158,39 @@ Status Get_keys_by_field(DB *db,const ReadOptions& options, const Field field,st
 //     delete db;
 // }
 
-TEST(Test, LARGE_DATA_COMPACT_TEST) {
+// TEST(Test, LARGE_DATA_COMPACT_TEST) {
+//     DB *db;
+//     WriteOptions writeOptions;
+//     ReadOptions readOptions;
+//     if(OpenDB("testdb_for_XOY_large", &db).ok() == false) {
+//         std::cerr << "open db failed" << std::endl;
+//         abort();
+//     }
+//     std::vector<std::string> values;
+//     for(int i=0;i<500000;i++){
+//         std::string key=std::to_string(i);
+//         std::string value;
+//         for(int j=0;j<1000;j++){
+//             value+=std::to_string(i);
+//         }
+//         values.push_back(value);
+//         db->Put(writeOptions,key,value);
+//     }
+//     for(int i=0;i<500000;i++){
+//         std::string key=std::to_string(i);
+//         std::string value;
+//         Status s=db->Get(readOptions,key,&value);
+//         assert(s.ok());
+//         if(values[i]!=value){
+//             std::cout<<value.size()<<std::endl;
+//             assert(0);
+//         }
+//         ASSERT_TRUE(values[i]==value);
+//     }
+//     delete db;
+// }
+
+TEST(Test, Garbage_Collect_TEST) {
     DB *db;
     WriteOptions writeOptions;
     ReadOptions readOptions;
@@ -167,7 +199,7 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
         abort();
     }
     std::vector<std::string> values;
-    for(int i=0;i<5000;i++){
+    for(int i=0;i<500000;i++){
         std::string key=std::to_string(i);
         std::string value;
         for(int j=0;j<1000;j++){
@@ -176,7 +208,11 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
         values.push_back(value);
         db->Put(writeOptions,key,value);
     }
-    for(int i=0;i<5000;i++){
+    std::cout<<"start gc"<<std::endl;
+    db->TEST_GarbageCollect();
+    std::cout<<"finish gc"<<std::endl;
+
+    for(int i=0;i<500000;i++){
         std::string key=std::to_string(i);
         std::string value;
         Status s=db->Get(readOptions,key,&value);
@@ -189,7 +225,6 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
     }
     delete db;
 }
-
 
 
 int main(int argc, char** argv) {

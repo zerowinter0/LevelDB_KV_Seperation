@@ -10,7 +10,7 @@ project(leveldb VERSION 1.23.0 LANGUAGES C CXX)
 if(NOT CMAKE_C_STANDARD)
   # This project can use C11, but will gracefully decay down to C89.
   # 我改到17了
-  set(CMAKE_C_STANDARD 11)
+  set(CMAKE_C_STANDARD 17)
   set(CMAKE_C_STANDARD_REQUIRED OFF)
   set(CMAKE_C_EXTENSIONS OFF)
 endif(NOT CMAKE_C_STANDARD)

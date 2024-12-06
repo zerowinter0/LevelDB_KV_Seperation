@@ -210,9 +210,16 @@ class DBImpl : public DB {
 
   // State below is protected by mutex_
   port::Mutex mutex_;
+  port::Mutex gc_mutex_;
+  // port::Mutex spj_mutex_;
+
   // std::shared_mutex value_log_mutex;
   std::atomic<bool> shutting_down_;
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
+  port::CondVar background_gc_finished_signal_ GUARDED_BY(gc_mutex_);
+
+  // Slice valuelog_finding_key GUARDED_BY(mutex_ );
+
   MemTable* mem_;
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_

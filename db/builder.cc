@@ -28,6 +28,7 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
       return s;
     }
 
+    // 如果第一个字节是 0x01，它会移除这个前缀，并尝试从剩下的数据中解析出 value
     {
       auto tmp_value=iter->value();
       if(tmp_value.data()[0]==(char)(0x01)){

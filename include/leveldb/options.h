@@ -157,6 +157,8 @@ struct LEVELDB_EXPORT ReadOptions {
   // Callers may wish to set this field to false for bulk scans.
   bool fill_cache = true;
 
+  bool find_value_log_for_gc = false;
+
   // If "snapshot" is non-null, read as of the supplied snapshot
   // (which must belong to the DB that is being read and which must
   // not have been released).  If "snapshot" is null, use an implicit
@@ -183,6 +185,7 @@ struct LEVELDB_EXPORT WriteOptions {
   // with sync==true has similar crash semantics to a "write()"
   // system call followed by "fsync()".
   bool sync = false;
+  bool valuelog_write=false;
 };
 
 }  // namespace leveldb

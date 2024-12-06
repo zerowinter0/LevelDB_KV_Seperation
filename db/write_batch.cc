@@ -145,12 +145,13 @@ class ValueLogInserter : public WriteBatch::Handler {
     }
     else{
       buf+=(char)(0x01);
-      std::vector<Slice> v;
-      v.push_back(value);
-      auto res=db_->WriteValueLog(v);
+      std::vector<std::pair<Slice,Slice>> kv;
+      kv.push_back({key,value});
+      auto res=db_->WriteValueLog(kv);
       PutVarint64(&buf,res[0].first);
-      PutVarint64(&buf,res[0].second.first);
-      PutVarint64(&buf,res[0].second.second);
+      // PutVarint64(&buf,res[0].second.first);
+      // PutVarint64(&buf,res[0].second.second);
+      PutVarint64(&buf,res[0].second);
     }
     new_value=Slice(buf);
     writeBatch_.Put(key,new_value);  

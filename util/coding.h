@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <set>
+#include <vector>
 
 #include "leveldb/slice.h"
 #include "port/port.h"
@@ -116,6 +118,13 @@ inline const char* GetVarint32Ptr(const char* p, const char* limit,
   }
   return GetVarint32PtrFallback(p, limit, value);
 }
+
+bool IsValueLogFile(const std::string& filename);
+void ParseStoredValue(const std::string& stored_value, uint64_t& valuelog_id,
+                      uint64_t& offset);
+uint64_t GetValueLogID(const std::string& valuelog_name);
+void SplitIntoChunks(const std::set<std::string>& files, int num_workers,
+                             std::vector<std::vector<std::string>>* chunks);
 
 }  // namespace leveldb
 

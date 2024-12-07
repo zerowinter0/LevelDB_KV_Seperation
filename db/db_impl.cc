@@ -143,6 +143,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       shutting_down_(false),
       background_work_finished_signal_(&mutex_),
       background_gc_finished_signal_(&gc_mutex_),
+      spj_mutex_cond_(&spj_mutex_),
       mem_(nullptr),
       imm_(nullptr),
       has_imm_(false),
@@ -1279,6 +1280,14 @@ void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
+  if(!o.valuelog_write){
+    spj_mutex_.Lock();
+    while(key==valuelog_finding_key){
+      spj_mutex_cond_.Wait();
+    }
+    spj_mutex_.Unlock();
+  }
+  
   return DB::Put(o, key, val);
 }
 
@@ -1344,17 +1353,17 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   while (true) {
     Writer* ready = writers_.front();
     writers_.pop_front();
-    if (ready != &w) {
-      ready->status = status;
-      ready->done = true;
-      ready->cv.Signal();
-    }
+    //if (ready != &w) {
+    ready->status = status;
+    ready->done = true;
+    ready->cv.SignalAll();
+    //}
     if (ready == last_writer) break;
   }
 
   // Notify new head of write queue
   if (!writers_.empty()) {
-    writers_.front()->cv.Signal();
+    writers_.front()->cv.SignalAll();
   }
 
   return status;
@@ -1577,6 +1586,18 @@ std::vector<std::pair<uint64_t, uint64_t>> DBImpl::WriteValueLog(
   }
 
   uint64_t offset = valueFile.tellp();
+
+  if(offset>=config::value_log_size){
+    addNewValueLog();
+    valueFile.close();
+    file_name_ = ValueLogFileName(dbname_, valuelogfile_number_);
+    valueFile =std::ofstream(file_name_, std::ios::app | std::ios::binary);
+    if (!valueFile.is_open()) {
+      assert(0);
+    }
+   offset = valueFile.tellp();
+
+  }
   std::vector<std::pair<uint64_t, uint64_t>> res;
 
   for (const auto& [key_slice, value_slice] : kv) {
@@ -1714,47 +1735,6 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
   return s;
 }
 
-// 判断文件是否为 valuelog 文件
-bool IsValueLogFile(const std::string& filename) {
-  // 检查文件是否以 ".valuelog" 结尾
-  const std::string suffix = ".valuelog";
-  return filename.size() > suffix.size() &&
-         filename.substr(filename.size() - suffix.size()) == suffix;
-}
-
-// 示例：解析 sstable 中的元信息
-void ParseStoredValue(const std::string& stored_value, uint64_t& valuelog_id,
-                      uint64_t& offset) {
-  // 假设 stored_value 格式为：valuelog_id|offset
-  Slice tmp(stored_value.data(), stored_value.size());
-  GetVarint64(&tmp, &valuelog_id);
-  GetVarint64(&tmp, &offset);
-}
-
-// 示例：获取 ValueLog 文件 ID
-uint64_t GetValueLogID(const std::string& valuelog_name) {
-  // 使用 std::filesystem::path 解析文件名
-  std::filesystem::path file_path(valuelog_name);
-  std::string filename = file_path.filename().string();  // 获取文件名部分
-
-  // 查找文件名中的 '.' 位置，提取数字部分
-  auto pos = filename.find('.');
-  if (pos == std::string::npos) {
-    assert(0);
-  }
-
-  // 提取数字部分
-  std::string id_str = filename.substr(0, pos);
-  // 检查提取的部分是否为有效数字
-  for (char c : id_str) {
-    if (!isdigit(c)) {
-      assert(0);
-    }
-  }
-
-  return std::stoull(id_str);  // 转换为 uint64_t
-}
-
 // 垃圾回收实现
 void DBImpl::GarbageCollect() {
   gc_mutex_.AssertHeld();
@@ -1762,14 +1742,14 @@ void DBImpl::GarbageCollect() {
   Log(options_.info_log, "start gc ");
   auto files_set = fs::directory_iterator(dbname_);
   std::set<std::string> valuelog_set;
-  std::string cur_valuelog_name =
-      ValueLogFileName(dbname_, valuelogfile_number_);
+  // std::string cur_valuelog_name =
+  //     ValueLogFileName(dbname_, valuelogfile_number_);
   for (const auto& cur_log_file : files_set) {
     if (fs::exists(cur_log_file) &&
         fs::is_regular_file(fs::status(cur_log_file)) &&
         IsValueLogFile(cur_log_file.path().filename().string())) {
-      if (cur_valuelog_name == cur_log_file.path().filename().string())
-        continue;
+      // if (cur_valuelog_name == cur_log_file.path().filename().string())
+      //   continue;
       valuelog_set.emplace(cur_log_file.path().filename().string());
     }
   }
@@ -1777,6 +1757,9 @@ void DBImpl::GarbageCollect() {
     // std::cout << valuelog_name << std::endl;
     uint64_t cur_log_number = GetValueLogID(valuelog_name);
     valuelog_name = ValueLogFileName(dbname_, cur_log_number);
+    if (cur_log_number == valuelogfile_number_) {
+      continue;
+    }
 
     uint64_t current_offset = 0;
     uint64_t tmp_offset = 0;
@@ -1880,7 +1863,22 @@ void DBImpl::GarbageCollect() {
 
       // 检查 key 是否在 sstable 中存在
       std::string stored_value;
-      auto option = leveldb::ReadOptions();
+
+      //lock those thread who attempt to push "key"
+      spj_mutex_.Lock();
+      valuelog_finding_key=key;
+      spj_mutex_.Unlock();
+      //wait for current writer queue to do all their thing
+      mutex_.Lock();
+      if(writers_.size()>0){
+        auto last_writer=writers_.back();
+        while(!last_writer->done){
+          last_writer->cv.Wait();
+        }
+      }
+      mutex_.Unlock();
+
+      auto option=leveldb::ReadOptions();
       option.find_value_log_for_gc = true;
 
       Status status = Get(option, key, &stored_value);
@@ -1905,8 +1903,16 @@ void DBImpl::GarbageCollect() {
         // 记录无效，跳过
         continue;
       }
+  
+      auto write_op=leveldb::WriteOptions();
+      write_op.valuelog_write=true;
+      status = Put(write_op, key, value);
 
-      status = Put(leveldb::WriteOptions(), key, value);
+      spj_mutex_.Lock();
+      valuelog_finding_key="";
+      spj_mutex_.Unlock();
+      spj_mutex_cond_.SignalAll();
+
       if (!status.ok()) {
         std::cerr << "Error accessing sstable: " << status.ToString()
                   << std::endl;

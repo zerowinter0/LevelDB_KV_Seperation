@@ -3,6 +3,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/coding.h"
+#include <filesystem>
+
+
 
 namespace leveldb {
 
@@ -150,6 +153,58 @@ bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
     return true;
   } else {
     return false;
+  }
+}
+
+// 判断文件是否为 valuelog 文件
+bool IsValueLogFile(const std::string& filename) {
+  // 检查文件是否以 ".valuelog" 结尾
+  const std::string suffix = ".valuelog";
+  return filename.size() > suffix.size() &&
+         filename.substr(filename.size() - suffix.size()) == suffix;
+}
+
+// 示例：解析 sstable 中的元信息
+void ParseStoredValue(const std::string& stored_value, uint64_t& valuelog_id,
+                      uint64_t& offset) {
+  // 假设 stored_value 格式为：valuelog_id|offset
+  Slice tmp(stored_value.data(), stored_value.size());
+  GetVarint64(&tmp, &valuelog_id);
+  GetVarint64(&tmp, &offset);
+}
+
+// 示例：获取 ValueLog 文件 ID
+uint64_t GetValueLogID(const std::string& valuelog_name) {
+  // 使用 std::filesystem::path 解析文件名
+  std::filesystem::path file_path(valuelog_name);
+  std::string filename = file_path.filename().string();  // 获取文件名部分
+
+  // 查找文件名中的 '.' 位置，提取数字部分
+  auto pos = filename.find('.');
+  if (pos == std::string::npos) {
+    assert(0);
+  }
+
+  // 提取数字部分
+  std::string id_str = filename.substr(0, pos);
+  // 检查提取的部分是否为有效数字
+  for (char c : id_str) {
+    if (!isdigit(c)) {
+      assert(0);
+    }
+  }
+
+  return std::stoull(id_str);  // 转换为 uint64_t
+}
+
+// Helper function to split the set of files into chunks
+void SplitIntoChunks(const std::set<std::string>& files, int num_workers,
+                             std::vector<std::vector<std::string>>* chunks) {
+  chunks->resize(num_workers);
+  int index = 0;
+  for (const auto& file : files) {
+    (*chunks)[index % num_workers].push_back(file);
+    ++index;
   }
 }
 

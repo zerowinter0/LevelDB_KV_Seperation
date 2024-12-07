@@ -44,6 +44,9 @@ static const int kMaxMemCompactLevel = 2;
 // Approximate gap in bytes between samples of data read during iteration.
 static const int kReadBytesPeriod = 1048576;
 
+// maximum size of value_log file
+static const int value_log_size=4<<14;
+
 }  // namespace config
 
 class InternalKey;

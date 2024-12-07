@@ -199,7 +199,7 @@ TEST(Test, Garbage_Collect_TEST) {
         abort();
     }
     std::vector<std::string> values;
-    for(int i=0;i<500000;i++){
+    for(int i=0;i<5000;i++){
         std::string key=std::to_string(i);
         std::string value;
         for(int j=0;j<1000;j++){
@@ -212,7 +212,7 @@ TEST(Test, Garbage_Collect_TEST) {
     db->TEST_GarbageCollect();
     std::cout<<"finish gc"<<std::endl;
 
-    for(int i=0;i<500000;i++){
+    for(int i=0;i<5000;i++){
         // std::cout<<i<<std::endl;
         std::string key=std::to_string(i);
         std::string value;

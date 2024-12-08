@@ -18,7 +18,6 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -39,7 +38,6 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-namespace fs = std::filesystem;
 
 namespace leveldb {
 
@@ -1740,21 +1738,16 @@ void DBImpl::GarbageCollect() {
   gc_mutex_.AssertHeld();
   // 遍历数据库目录，找到所有 valuelog 文件
   Log(options_.info_log, "start gc ");
-  auto files_set = fs::directory_iterator(dbname_);
+  std::vector<std::string> filenames;
+  Status s = env_->GetChildren(dbname_, &filenames);
+  assert(s.ok());
   std::set<std::string> valuelog_set;
-  // std::string cur_valuelog_name =
-  //     ValueLogFileName(dbname_, valuelogfile_number_);
-  for (const auto& cur_log_file : files_set) {
-    if (fs::exists(cur_log_file) &&
-        fs::is_regular_file(fs::status(cur_log_file)) &&
-        IsValueLogFile(cur_log_file.path().filename().string())) {
-      // if (cur_valuelog_name == cur_log_file.path().filename().string())
-      //   continue;
-      valuelog_set.emplace(cur_log_file.path().filename().string());
+  for (const auto& filename:filenames) {
+    if (IsValueLogFile(filename)) {
+      valuelog_set.emplace(filename);
     }
   }
   for (std::string valuelog_name : valuelog_set) {
-    // std::cout << valuelog_name << std::endl;
     uint64_t cur_log_number = GetValueLogID(valuelog_name);
     valuelog_name = ValueLogFileName(dbname_, cur_log_number);
     if (cur_log_number == valuelogfile_number_) {
@@ -1887,6 +1880,10 @@ void DBImpl::GarbageCollect() {
         // Key 不存在，忽略此记录
         continue;
       }
+      else if(stored_value.data()[0]==(char)(0x00)){
+        //value is too small
+        continue;
+      }
 
       if (!status.ok()) {
         std::cerr << "Error accessing sstable: " << status.ToString()
@@ -1923,7 +1920,9 @@ void DBImpl::GarbageCollect() {
     // 清理旧文件（如果需要）
     cur_valuelog.close();
 
-    fs::remove(valuelog_name.c_str());  // 删除旧的 ValueLog 文件
+    env_->RemoveFile(valuelog_name);
+
+
     Log(options_.info_log, "remove file during gc %s", valuelog_name.c_str());
   }
 }

@@ -3,8 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/coding.h"
-#include <filesystem>
-
+#include <sstream>
 
 
 namespace leveldb {
@@ -174,27 +173,38 @@ void ParseStoredValue(const std::string& stored_value, uint64_t& valuelog_id,
 }
 
 // 示例：获取 ValueLog 文件 ID
+// 示例：获取 ValueLog 文件 ID
 uint64_t GetValueLogID(const std::string& valuelog_name) {
-  // 使用 std::filesystem::path 解析文件名
-  std::filesystem::path file_path(valuelog_name);
-  std::string filename = file_path.filename().string();  // 获取文件名部分
 
-  // 查找文件名中的 '.' 位置，提取数字部分
-  auto pos = filename.find('.');
-  if (pos == std::string::npos) {
-    assert(0);
-  }
-
-  // 提取数字部分
-  std::string id_str = filename.substr(0, pos);
-  // 检查提取的部分是否为有效数字
-  for (char c : id_str) {
-    if (!isdigit(c)) {
-      assert(0);
+    // 获取文件名部分（假设文件名格式为 "number.extension"）
+    size_t pos = valuelog_name.find_last_of('/');
+    std::string filename;
+    if (pos != std::string::npos) {
+        filename = valuelog_name.substr(pos + 1);
+    } else {
+        filename = valuelog_name;
     }
-  }
 
-  return std::stoull(id_str);  // 转换为 uint64_t
+    // 查找文件名中的 '.' 位置，提取数字部分
+    pos = filename.find('.');
+    assert(pos != std::string::npos);
+
+    // 提取数字部分
+    std::string id_str = filename.substr(0, pos);
+
+    // 检查文件扩展名是否为 .valuelog
+    if (filename.substr(pos + 1) != "valuelog") {
+        assert(0);
+    }
+
+    // 转换为 uint64_t
+    uint64_t id;
+    std::istringstream iss(id_str);
+    if (!(iss >> id)) {
+        assert(0);
+    }
+
+    return id;
 }
 
 // Helper function to split the set of files into chunks

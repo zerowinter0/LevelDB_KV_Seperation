@@ -820,7 +820,7 @@ void DBImpl::BackgroundCompaction() {
     CleanupCompaction(compact);
     c->ReleaseInputs();
     RemoveObsoleteFiles();
-    //MaybeScheduleGarbageCollect();
+    MaybeScheduleGarbageCollect();
   }
   delete c;
 

@@ -1742,14 +1742,10 @@ void DBImpl::GarbageCollect() {
   Log(options_.info_log, "start gc ");
   auto files_set = fs::directory_iterator(dbname_);
   std::set<std::string> valuelog_set;
-  // std::string cur_valuelog_name =
-  //     ValueLogFileName(dbname_, valuelogfile_number_);
   for (const auto& cur_log_file : files_set) {
     if (fs::exists(cur_log_file) &&
         fs::is_regular_file(fs::status(cur_log_file)) &&
         IsValueLogFile(cur_log_file.path().filename().string())) {
-      // if (cur_valuelog_name == cur_log_file.path().filename().string())
-      //   continue;
       valuelog_set.emplace(cur_log_file.path().filename().string());
     }
   }

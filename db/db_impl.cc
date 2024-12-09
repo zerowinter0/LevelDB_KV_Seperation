@@ -820,7 +820,7 @@ void DBImpl::BackgroundCompaction() {
     CleanupCompaction(compact);
     c->ReleaseInputs();
     RemoveObsoleteFiles();
-    MaybeScheduleGarbageCollect();
+    //MaybeScheduleGarbageCollect();
   }
   delete c;
 
@@ -1354,17 +1354,17 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   while (true) {
     Writer* ready = writers_.front();
     writers_.pop_front();
-    //if (ready != &w) {
-    ready->status = status;
-    ready->done = true;
-    ready->cv.SignalAll();
-    //}
+    if (ready != &w) {
+      ready->status = status;
+      ready->done = true;
+      ready->cv.Signal();
+    }
     if (ready == last_writer) break;
   }
 
   // Notify new head of write queue
   if (!writers_.empty()) {
-    writers_.front()->cv.SignalAll();
+    writers_.front()->cv.Signal();
   }
 
   return status;
@@ -1857,14 +1857,7 @@ void DBImpl::GarbageCollect() {
       valuelog_finding_key=key;
       spj_mutex_.Unlock();
       //wait for current writer queue to do all their thing
-      mutex_.Lock();
-      if(writers_.size()>0){
-        auto last_writer=writers_.back();
-        while(!last_writer->done){
-          last_writer->cv.Wait();
-        }
-      }
-      mutex_.Unlock();
+      Write(leveldb::WriteOptions(), nullptr);
 
       auto option=leveldb::ReadOptions();
       option.find_value_log_for_gc = true;

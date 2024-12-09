@@ -37,7 +37,6 @@ TEST(Test, CheckGetFields) {
 
     db->Put(WriteOptions(), key1, value1);
 
-    // 璇诲彇骞跺弽搴忓垪鍖?
     std::string value_ret;
     FieldArray res1;
 
@@ -101,23 +100,23 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
     for(int i=0;i<500000;i++){
         std::string key=std::to_string(i);
         std::string value;
-        for(int j=0;j<1000;j++){
+        for(int j=0;j<5000;j++){
             value+=std::to_string(i);
         }
         values.push_back(value);
         db->Put(writeOptions,key,value);
     }
-    // for(int i=0;i<500000;i++){
-    //     std::string key=std::to_string(i);
-    //     std::string value;
-    //     Status s=db->Get(readOptions,key,&value);
-    //     assert(s.ok());
-    //     if(values[i]!=value){
-    //         std::cout<<value.size()<<std::endl;
-    //         assert(0);
-    //     }
-    //     ASSERT_TRUE(values[i]==value);
-    // }
+    for(int i=0;i<500000;i++){
+        std::string key=std::to_string(i);
+        std::string value;
+        Status s=db->Get(readOptions,key,&value);
+        assert(s.ok());
+        if(values[i]!=value){
+            std::cout<<value.size()<<std::endl;
+            assert(0);
+        }
+        ASSERT_TRUE(values[i]==value);
+    }
     delete db;
 }
 

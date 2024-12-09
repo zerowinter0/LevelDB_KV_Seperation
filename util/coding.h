@@ -18,6 +18,8 @@
 
 #include "leveldb/slice.h"
 #include "port/port.h"
+#include "leveldb/db.h"
+
 
 namespace leveldb {
 

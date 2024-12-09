@@ -1312,7 +1312,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   }
 
   // May temporarily unlock and wait.
-  Status status = MakeRoomForWrite(updates == nullptr);
+  Status status = MakeRoomForWrite(updates == nullptr&&!options.valuelog_write);
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
@@ -1863,7 +1863,12 @@ void DBImpl::GarbageCollect() {
       valuelog_finding_key=key;
       spj_mutex_.Unlock();
       //wait for current writer queue to do all their thing
-      Write(leveldb::WriteOptions(), nullptr);
+      {
+        auto op=leveldb::WriteOptions();
+        op.valuelog_write=true;
+        Write(op, nullptr);
+      }
+      
 
       auto option=leveldb::ReadOptions();
       option.find_value_log_for_gc = true;

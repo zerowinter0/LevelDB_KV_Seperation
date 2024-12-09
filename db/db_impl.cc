@@ -1483,7 +1483,6 @@ Status DBImpl::MakeRoomForWrite(bool force) {
         RecordBackgroundError(s);
       }
       delete logfile_;
-      addNewValueLog();
       logfile_ = lfile;
       logfile_number_ = new_log_number;
       log_ = new log::Writer(lfile);

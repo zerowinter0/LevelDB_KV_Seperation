@@ -669,6 +669,7 @@ void DBImpl::TEST_GarbageCollect() {
   while (background_garbage_collect_scheduled_) {
     background_gc_finished_signal_.Wait();
   }
+  gc_mutex_.Unlock();
 }
 
 void DBImpl::RecordBackgroundError(const Status& s) {
@@ -708,6 +709,7 @@ void DBImpl::MaybeScheduleGarbageCollect() {
   } else {
     gc_mutex_.Lock();
     background_garbage_collect_scheduled_ = true;
+    gc_mutex_.Unlock();
     auto bg_thread_ = std::thread(&DBImpl::BGWorkGC, this);
     bg_thread_.detach();
   }
@@ -744,8 +746,9 @@ void DBImpl::BackgroundCall() {
 }
 
 void DBImpl::BackgroundGarbageCollect() {
-  MutexLock l(&gc_mutex_);
+  gc_mutex_.Lock();
   assert(background_garbage_collect_scheduled_);
+  gc_mutex_.Unlock();
 
   if (shutting_down_.load(std::memory_order_acquire)) {
     // No more background work when shutting down.
@@ -754,11 +757,10 @@ void DBImpl::BackgroundGarbageCollect() {
   } else {
     // Perform garbage collection here
     GarbageCollect();
-    gc_mutex_.Unlock();
   }
-
+  gc_mutex_.Lock();
   background_garbage_collect_scheduled_ = false;
-
+  gc_mutex_.Unlock();
   // Notify any waiting threads
   background_gc_finished_signal_.SignalAll();
 }
@@ -818,6 +820,7 @@ void DBImpl::BackgroundCompaction() {
     CleanupCompaction(compact);
     c->ReleaseInputs();
     RemoveObsoleteFiles();
+    MaybeScheduleGarbageCollect();
   }
   delete c;
 
@@ -1735,7 +1738,6 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
 
 // 垃圾回收实现
 void DBImpl::GarbageCollect() {
-  gc_mutex_.AssertHeld();
   // 遍历数据库目录，找到所有 valuelog 文件
   Log(options_.info_log, "start gc ");
   std::vector<std::string> filenames;

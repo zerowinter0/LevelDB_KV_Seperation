@@ -16,75 +16,6 @@ Status OpenDB(std::string dbName, DB **db) {
   return DB::Open(options, dbName, db);
 }
 
-bool CompareFieldArray(const FieldArray &a, const FieldArray &b) {
-  if (a.size() != b.size()) return false;
-  for (size_t i = 0; i < a.size(); ++i) {
-    if (a[i].first != b[i].first || a[i].second != b[i].second) return false;
-  }
-  return true;
-}
-
-bool CompareKey(const std::vector<std::string> a, std::vector<std::string> b) {
-  if (a.size() != b.size()){
-     return false;
-  }
-  for (size_t i = 0; i < a.size(); ++i) {
-    if (a[i] != b[i]){
-        return false;
-    }
-  }
-  return true;
-}
-
-std::string SerializeValue(const FieldArray& fields){
-  std::string res_="";
-  PutVarint64(&res_,(uint64_t)fields.size());
-  for(auto pr:fields){
-    PutLengthPrefixedSlice(&res_, pr.first);
-    PutLengthPrefixedSlice(&res_, pr.second);
-  }
-  return res_;
-}
-
-  // 鍙嶅簭鍒楀寲涓哄瓧娈垫暟缁?
-void DeserializeValue(const std::string& value_str,FieldArray* res){
-  Slice slice=Slice(value_str.c_str());
-  uint64_t siz;
-  bool tmpres=GetVarint64(&slice,&siz);
-  assert(tmpres);
-  res->clear();
-  for(int i=0;i<siz;i++){
-    Slice value_name;
-    Slice value;
-    tmpres=GetLengthPrefixedSlice(&slice,&value_name);
-    assert(tmpres);
-    tmpres=GetLengthPrefixedSlice(&slice,&value);
-    assert(tmpres);
-    res->emplace_back(value_name,value);
-  }
-}
-
-Status Get_keys_by_field(DB *db,const ReadOptions& options, const Field field,std::vector<std::string> *keys){
-  auto it=db->NewIterator(options);
-  it->SeekToFirst();
-  keys->clear();
-  while(it->Valid()){
-    auto val=it->value();
-    FieldArray arr;
-    auto str_val=std::string(val.data(),val.size());
-    DeserializeValue(str_val,&arr);
-    for(auto pr:arr){
-      if(pr.first==field.first&&pr.second==field.second){
-        Slice key=it->key();
-        keys->push_back(std::string(key.data(),key.size()));
-        break;
-      }
-    }
-    it->Next();
-  }
-  delete it;
-  return Status::OK();
-}
 
 TEST(Test, CheckGetFields) {
     DB *db;
@@ -158,37 +89,37 @@ TEST(Test, CheckSearchKey) {
     delete db;
 }
 
-// TEST(Test, LARGE_DATA_COMPACT_TEST) {
-//     DB *db;
-//     WriteOptions writeOptions;
-//     ReadOptions readOptions;
-//     if(OpenDB("testdb_for_XOY_large", &db).ok() == false) {
-//         std::cerr << "open db failed" << std::endl;
-//         abort();
-//     }
-//     std::vector<std::string> values;
-//     for(int i=0;i<500000;i++){
-//         std::string key=std::to_string(i);
-//         std::string value;
-//         for(int j=0;j<1000;j++){
-//             value+=std::to_string(i);
-//         }
-//         values.push_back(value);
-//         db->Put(writeOptions,key,value);
-//     }
-//     for(int i=0;i<500000;i++){
-//         std::string key=std::to_string(i);
-//         std::string value;
-//         Status s=db->Get(readOptions,key,&value);
-//         assert(s.ok());
-//         if(values[i]!=value){
-//             std::cout<<value.size()<<std::endl;
-//             assert(0);
-//         }
-//         ASSERT_TRUE(values[i]==value);
-//     }
-//     delete db;
-// }
+TEST(Test, LARGE_DATA_COMPACT_TEST) {
+    DB *db;
+    WriteOptions writeOptions;
+    ReadOptions readOptions;
+    if(OpenDB("testdb_for_XOY_large", &db).ok() == false) {
+        std::cerr << "open db failed" << std::endl;
+        abort();
+    }
+    std::vector<std::string> values;
+    for(int i=0;i<500000;i++){
+        std::string key=std::to_string(i);
+        std::string value;
+        for(int j=0;j<1000;j++){
+            value+=std::to_string(i);
+        }
+        values.push_back(value);
+        db->Put(writeOptions,key,value);
+    }
+    // for(int i=0;i<500000;i++){
+    //     std::string key=std::to_string(i);
+    //     std::string value;
+    //     Status s=db->Get(readOptions,key,&value);
+    //     assert(s.ok());
+    //     if(values[i]!=value){
+    //         std::cout<<value.size()<<std::endl;
+    //         assert(0);
+    //     }
+    //     ASSERT_TRUE(values[i]==value);
+    // }
+    delete db;
+}
 
 TEST(Test, Garbage_Collect_TEST) {
     DB *db;

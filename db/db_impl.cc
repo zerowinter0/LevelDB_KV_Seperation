@@ -1829,24 +1829,23 @@ void DBImpl::GarbageCollect() {
       // 更新当前偏移
       current_offset += sizeof(uint64_t);
 
-      // Now seek to the actual data position and read the value
-      cur_valuelog.seekg(current_offset);
-      char* value_buf = new char[val_len];
-      cur_valuelog.read(value_buf, val_len);
-      if (!cur_valuelog.good()) {
-        delete[] key_buf;
-        delete[] key_buf_len;
-        delete[] value_buf_len;
-        delete[] value_buf;
-        cur_valuelog.close();
-        std::cerr << "Failed to read file: " << valuelog_name << std::endl;
-        break;
-      }
+      // // Now seek to the actual data position and read the value
+      // cur_valuelog.seekg(current_offset);
+      // char* value_buf = new char[val_len];
+      // cur_valuelog.read(value_buf, val_len);
+      // if (!cur_valuelog.good()) {
+      //   delete[] key_buf;
+      //   delete[] key_buf_len;
+      //   delete[] value_buf_len;
+      //   delete[] value_buf;
+      //   cur_valuelog.close();
+      //   std::cerr << "Failed to read file: " << valuelog_name << std::endl;
+      //   break;
+      // }
       current_offset += val_len;
 
-      // Assign the read value data to the Slice
-      value = Slice(value_buf, val_len);
-      // std::cout<<val_len<<std::endl;
+      // // Assign the read value data to the Slice
+      // value = Slice(value_buf, val_len);
 
       // 检查 key 是否在 sstable 中存在
       std::string stored_value;
@@ -1894,6 +1893,23 @@ void DBImpl::GarbageCollect() {
         // 记录无效，跳过
         continue;
       }
+
+      // Now seek to the actual data position and read the value
+      cur_valuelog.seekg(current_offset-val_len);
+      char* value_buf = new char[val_len];
+      cur_valuelog.read(value_buf, val_len);
+      if (!cur_valuelog.good()) {
+        delete[] key_buf;
+        delete[] key_buf_len;
+        delete[] value_buf_len;
+        delete[] value_buf;
+        cur_valuelog.close();
+        std::cerr << "Failed to read file: " << valuelog_name << std::endl;
+        break;
+      }
+
+      // Assign the read value data to the Slice
+      value = Slice(value_buf, val_len);
   
       auto write_op=leveldb::WriteOptions();
       write_op.valuelog_write=true;

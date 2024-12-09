@@ -140,7 +140,7 @@ class ValueLogInserter : public WriteBatch::Handler {
     Slice new_value;
     std::string buf;
     if(value.size()<100){
-      buf+=(char)(0x00);
+      buf+=(char)(0x00);// should set in key
       buf.append(value.data(),value.size());
     }
     else{
@@ -149,13 +149,12 @@ class ValueLogInserter : public WriteBatch::Handler {
       kv.push_back({key,value});
       auto res=db_->WriteValueLog(kv);
       PutVarint64(&buf,res[0].first);
-      // PutVarint64(&buf,res[0].second.first);
-      // PutVarint64(&buf,res[0].second.second);
       PutVarint64(&buf,res[0].second);
     }
     new_value=Slice(buf);
     writeBatch_.Put(key,new_value);  
   }
+  
   void Delete(const Slice& key) override {
     writeBatch_.Delete(key);
   }

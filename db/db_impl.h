@@ -68,8 +68,6 @@ class DBImpl : public DB {
   // WriteValueLog(std::vector<Slice> value)override;
   std::vector<std::pair<uint64_t, uint64_t>> WriteValueLog(
       std::vector<std::pair<Slice, Slice>> value) override;
-  void writeValueLogForCompaction(WritableFile* target_file,
-                                  std::vector<Slice> value);
   void addNewValueLog() override EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   ;
   std::pair<WritableFile*, uint64_t> getNewValuelog();  // use for compaction

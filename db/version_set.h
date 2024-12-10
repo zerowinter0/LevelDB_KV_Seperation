@@ -90,6 +90,9 @@ class Version {
   // under live iterators)
   void Ref();
   void Unref();
+  
+  // Add old valuelog to current version, delete them when current version is no more used
+  void addOldValueLog(std::string valuelog_name);
 
   void GetOverlappingInputs(
       int level,
@@ -152,6 +155,8 @@ class Version {
 
   // List of files per level
   std::vector<FileMetaData*> files_[config::kNumLevels];
+
+  std::vector<std::string> old_valuelog_names;
 
   // Next file to compact based on seek stats.
   FileMetaData* file_to_compact_;

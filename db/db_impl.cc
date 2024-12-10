@@ -1742,14 +1742,14 @@ void DBImpl::GarbageCollect() {
       valuelog_set.emplace(filename);
     }
   }
-  bool tmp_judge=false;//only clean one file
+  //bool tmp_judge=false;//only clean one file
   for (std::string valuelog_name : valuelog_set) {
-    if(tmp_judge){
-      break;
-    }
-    else{
-      tmp_judge=true;
-    }
+    // if(tmp_judge){
+    //   break;
+    // }
+    // else{
+    //   tmp_judge=true;
+    // }
     uint64_t cur_log_number = GetValueLogID(valuelog_name);
     valuelog_name = ValueLogFileName(dbname_, cur_log_number);
     if (cur_log_number == valuelogfile_number_) {
@@ -1936,7 +1936,10 @@ void DBImpl::GarbageCollect() {
     // 清理旧文件（如果需要）
     cur_valuelog.close();
 
-    env_->RemoveFile(valuelog_name);
+    mutex_.Lock();
+    versions_->current()->addOldValueLog(valuelog_name);
+
+    mutex_.Unlock();
 
 
     Log(options_.info_log, "remove file during gc %s", valuelog_name.c_str());

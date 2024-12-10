@@ -82,6 +82,10 @@ Version::~Version() {
       }
     }
   }
+
+  for(auto valuelog_name:old_valuelog_names){
+    vset_->env_->RemoveFile(valuelog_name);
+  }
 }
 
 int FindFile(const InternalKeyComparator& icmp,
@@ -459,6 +463,10 @@ void Version::Unref() {
   if (refs_ == 0) {
     delete this;
   }
+}
+
+void Version::addOldValueLog(std::string valuelog_name){
+  old_valuelog_names.push_back(valuelog_name);
 }
 
 bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,

@@ -6,7 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
-
+#include <iostream>
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -84,7 +84,12 @@ Version::~Version() {
   }
 
   for(auto valuelog_name:old_valuelog_names){
-    vset_->env_->RemoveFile(valuelog_name);
+    vset_->valuelogmap_mutex.Lock();
+    int res=vset_->old_valuelog_map[valuelog_name]--;
+    if(res==1){
+      vset_->env_->RemoveFile(valuelog_name);
+    }
+    vset_->valuelogmap_mutex.Unlock();
   }
 }
 
@@ -1164,6 +1169,16 @@ void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
       }
     }
   }
+}
+
+void VersionSet::AddOldValueLogFile(std::string valuelog_name){
+  valuelogmap_mutex.Lock();
+  old_valuelog_map[valuelog_name]=0;
+  for (Version* v = dummy_versions_.next_; v != &dummy_versions_; v = v->next_) {
+    old_valuelog_map[valuelog_name]++;
+    v->addOldValueLog(valuelog_name);//when all these version were deleted, the value log will be free to delete
+  }
+  valuelogmap_mutex.Unlock();
 }
 
 int64_t VersionSet::NumLevelBytes(int level) const {

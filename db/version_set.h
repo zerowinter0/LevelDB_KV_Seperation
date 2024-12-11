@@ -18,7 +18,7 @@
 #include <map>
 #include <set>
 #include <vector>
-
+#include <atomic>
 #include "db/dbformat.h"
 #include "db/version_edit.h"
 #include "port/port.h"
@@ -263,6 +263,15 @@ class VersionSet {
   // May also mutate some internal state.
   void AddLiveFiles(std::set<uint64_t>* live);
 
+  void AddOldValueLogFile(std::string valuelog_name);
+
+  bool checkOldValueLog(std::string valuelog_name){
+    valuelogmap_mutex.Lock();
+    auto res=old_valuelog_map.count(valuelog_name);
+    valuelogmap_mutex.Unlock();
+    return res;
+  }
+
   // Return the approximate offset in the database of the data for
   // "key" as of version "v".
   uint64_t ApproximateOffsetOf(Version* v, const InternalKey& key);
@@ -308,6 +317,10 @@ class VersionSet {
   uint64_t last_sequence_;
   uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
+
+  std::map<std::string,int> old_valuelog_map;
+
+  port::Mutex valuelogmap_mutex;
 
   // Opened lazily
   WritableFile* descriptor_file_;

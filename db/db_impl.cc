@@ -158,13 +158,21 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish.
+  gc_mutex_.Lock();
+  while(background_garbage_collect_scheduled_){
+    background_gc_finished_signal_.Wait();
+  }
+  background_garbage_collect_scheduled_=true;
+  gc_mutex_.Unlock();
   mutex_.Lock();
   shutting_down_.store(true, std::memory_order_release);
   while (background_compaction_scheduled_) {
     background_work_finished_signal_.Wait();
   }
   mutex_.Unlock();
-
+  gc_mutex_.Lock();
+  background_garbage_collect_scheduled_=false;
+  gc_mutex_.Unlock();
   if (db_lock_ != nullptr) {
     env_->UnlockFile(db_lock_);
   }
@@ -1732,18 +1740,23 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
 // 垃圾回收实现
 void DBImpl::GarbageCollect() {
   // 遍历数据库目录，找到所有 valuelog 文件
-  Log(options_.info_log, "start gc ");
+  
   std::vector<std::string> filenames;
   Status s = env_->GetChildren(dbname_, &filenames);
+  Log(options_.info_log, "start gc ");
   assert(s.ok());
   std::set<std::string> valuelog_set;
   for (const auto& filename:filenames) {
-    if (IsValueLogFile(filename)) {
-      valuelog_set.emplace(filename);
+    if (IsValueLogFile(filename)){
+      uint64_t cur_log_number = GetValueLogID(filename);
+      auto tmp_name = ValueLogFileName(dbname_, cur_log_number);
+      
+      if(!versions_->checkOldValueLog(tmp_name))valuelog_set.emplace(filename);
     }
   }
   //bool tmp_judge=false;//only clean one file
   for (std::string valuelog_name : valuelog_set) {
+    Log(options_.info_log, ("gc processing: "+valuelog_name).data());
     // if(tmp_judge){
     //   break;
     // }
@@ -1937,13 +1950,12 @@ void DBImpl::GarbageCollect() {
     cur_valuelog.close();
 
     mutex_.Lock();
-    versions_->current()->addOldValueLog(valuelog_name);
+    versions_->AddOldValueLogFile(valuelog_name);
 
     mutex_.Unlock();
 
-
-    Log(options_.info_log, "remove file during gc %s", valuelog_name.c_str());
   }
+  Log(options_.info_log, "end gc ");
 }
 
 // Default implementations of convenience methods that subclasses of DB
@@ -2026,6 +2038,12 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     for (size_t i = 0; i < filenames.size(); i++) {
       if (ParseFileName(filenames[i], &number, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
+        Status del = env->RemoveFile(dbname + "/" + filenames[i]);
+        if (result.ok() && !del.ok()) {
+          result = del;
+        }
+      }
+      else if(IsValueLogFile(filenames[i])){
         Status del = env->RemoveFile(dbname + "/" + filenames[i]);
         if (result.ok() && !del.ok()) {
           result = del;

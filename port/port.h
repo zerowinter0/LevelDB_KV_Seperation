@@ -4,7 +4,7 @@
 
 #ifndef STORAGE_LEVELDB_PORT_PORT_H_
 #define STORAGE_LEVELDB_PORT_PORT_H_
-
+//#define LEVELDB_PLATFORM_POSIX
 #include <string.h>
 
 // Include the appropriate platform specific file below.  If you are

@@ -68,23 +68,8 @@ class DBIter : public Iterator {
   }
   Slice value() const override {
     assert(valid_);
-    auto tmp_value= (direction_ == kForward) ? iter_->value() : saved_value_;
-    Slice key;
-    if(tmp_value.data()[0]==0x00){
-      tmp_value.remove_prefix(1);
-      return tmp_value;
-    }
-    tmp_value.remove_prefix(1);
-    uint64_t file_id,valuelog_offset,valuelog_len;
-    bool res=GetVarint64(&tmp_value,&file_id);
-    if(!res)assert(0);
-    res=GetVarint64(&tmp_value,&valuelog_offset);
-    if(!res)assert(0);
-    // res=GetVarint64(&tmp_value,&valuelog_len);
-    // if(!res)assert(0);
-    // db_->ReadValueLog(file_id,valuelog_offset,valuelog_len,&tmp_value);
-    db_->ReadValueLog(file_id,valuelog_offset, &key, &tmp_value);
-    return tmp_value;
+    Slice val = (direction_ == kForward) ? iter_->value() : saved_value_;
+    return val;
   }
   Status status() const override {
     if (status_.ok()) {

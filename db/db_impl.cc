@@ -6,6 +6,7 @@
 
 #include "db/builder.h"
 #include "db/db_iter.h"
+#include "db/prefetch_iter.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
@@ -1262,12 +1263,13 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
   Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
-  return NewDBIterator(this, user_comparator(), iter,
+  auto db_iter=NewDBIterator(this, user_comparator(), iter,
                        (options.snapshot != nullptr
                             ? static_cast<const SnapshotImpl*>(options.snapshot)
                                   ->sequence_number()
                             : latest_snapshot),
                        seed);
+  return NewPreFetchIterator(this,db_iter);
 }
 
 void DBImpl::RecordReadSample(Slice key) {
@@ -1754,15 +1756,8 @@ void DBImpl::GarbageCollect() {
       if(!versions_->checkOldValueLog(tmp_name))valuelog_set.emplace(filename);
     }
   }
-  //bool tmp_judge=false;//only clean one file
   for (std::string valuelog_name : valuelog_set) {
     Log(options_.info_log, ("gc processing: "+valuelog_name).data());
-    // if(tmp_judge){
-    //   break;
-    // }
-    // else{
-    //   tmp_judge=true;
-    // }
     uint64_t cur_log_number = GetValueLogID(valuelog_name);
     valuelog_name = ValueLogFileName(dbname_, cur_log_number);
     if (cur_log_number == valuelogfile_number_) {

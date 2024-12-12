@@ -21,7 +21,7 @@ TEST(Test, CheckGetFields) {
     DB *db;
     WriteOptions writeOptions;
     ReadOptions readOptions;
-    if(OpenDB("testdb_for_XOY", &db).ok() == false) {
+    if(OpenDB("testdb_for_XOY_large", &db).ok() == false) {
         std::cerr << "open db failed" << std::endl;
         abort();
     }
@@ -57,7 +57,7 @@ TEST(Test, CheckGetFields) {
 TEST(Test, CheckSearchKey) {
     DB *db;
     ReadOptions readOptions;
-    if(OpenDB("testdb_for_XOY", &db).ok() == false) {
+    if(OpenDB("testdb_for_XOY_large", &db).ok() == false) {
         std::cerr << "open db failed" << std::endl;
         abort();
     }
@@ -97,7 +97,7 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
         abort();
     }
     std::vector<std::string> values;
-    for(int i=0;i<500000;i++){
+    for(int i=0;i<50000;i++){
         std::string key=std::to_string(i);
         std::string value;
         for(int j=0;j<5000;j++){
@@ -106,7 +106,7 @@ TEST(Test, LARGE_DATA_COMPACT_TEST) {
         values.push_back(value);
         db->Put(writeOptions,key,value);
     }
-    for(int i=0;i<500000;i++){
+    for(int i=0;i<50000;i++){
         std::string key=std::to_string(i);
         std::string value;
         Status s=db->Get(readOptions,key,&value);

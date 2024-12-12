@@ -83,7 +83,7 @@ class DBIter : public Iterator {
     // res=GetVarint64(&tmp_value,&valuelog_len);
     // if(!res)assert(0);
     // db_->ReadValueLog(file_id,valuelog_offset,valuelog_len,&tmp_value);
-    db_->ReadValueLog(file_id,valuelog_offset, &key, &tmp_value);
+    db_->ReadValueLog(file_id,valuelog_offset, &tmp_value);
     return tmp_value;
   }
   Status status() const override {

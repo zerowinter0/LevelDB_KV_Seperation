@@ -73,7 +73,7 @@ class DBImpl : public DB {
   std::pair<WritableFile*, uint64_t> getNewValuelog();  // use for compaction
   // Status ReadValueLog(uint64_t file_id, uint64_t offset,Slice*
   // value)override;
-  Status ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
+  Status ReadValueLog(uint64_t file_id, uint64_t offset, 
                       Slice* value) override;
 
   // Extra methods (for testing) that are not in the public DB interface

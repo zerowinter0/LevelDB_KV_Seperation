@@ -1262,14 +1262,29 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
+  int iter_num=24;
+  std::vector<Iterator*> iters(iter_num, nullptr);
+  for(int i=0;i<iter_num;i++){
+    Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
+    auto db_iter=NewDBIterator(this, user_comparator(), iter,
+                        (options.snapshot != nullptr
+                              ? static_cast<const SnapshotImpl*>(options.snapshot)
+                                    ->sequence_number()
+                              : latest_snapshot),
+                        seed);
+    iters[i]=db_iter;
+  }
+
   Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
   auto db_iter=NewDBIterator(this, user_comparator(), iter,
-                       (options.snapshot != nullptr
+                      (options.snapshot != nullptr
                             ? static_cast<const SnapshotImpl*>(options.snapshot)
                                   ->sequence_number()
                             : latest_snapshot),
-                       seed);
-  return NewPreFetchIterator(this,db_iter);
+                      seed);
+  
+  
+  return NewPreFetchIterator(this,db_iter,iters,iter_num);
 }
 
 void DBImpl::RecordReadSample(Slice key) {

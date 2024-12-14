@@ -230,6 +230,7 @@ class DBImpl : public DB {
   uint64_t valuelogfile_number_;
   log::Writer* log_;
   std::map<uint64_t, uint64_t> oldvaluelog_ids;
+  std::map<uint64_t,RandomAccessFile*> mem_valuelogs;
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.

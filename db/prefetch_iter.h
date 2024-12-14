@@ -15,7 +15,7 @@ namespace leveldb {
 class DBImpl;
 
 // add a prefetch function for db_iter
-Iterator* NewPreFetchIterator(DBImpl* db,Iterator* db_iter,std::vector<Iterator*> prefetch_iter,int prefetch_num);
+Iterator* NewPreFetchIterator(DBImpl* db,Iterator* db_iter, Iterator* prefetch_iter,int prefetch_num);
 
 }  // namespace leveldb
 

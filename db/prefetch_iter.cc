@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <thread>
+#include <queue>
 #include "db/prefetch_iter.h"
 
 #include "db/db_impl.h"
@@ -37,9 +38,9 @@ class DBPreFetchIter : public Iterator {
   //     just before all entries whose user key == this->key().
   enum IterPos {Left,Mid,Right};
 
-  DBPreFetchIter(DBImpl* db, Iterator* iter, std::vector<Iterator*> prefetch_iters,int prefetch_num)
+  DBPreFetchIter(DBImpl* db, Iterator* iter, Iterator* prefetch_iter,int prefetch_num)
       : 
-        db_(db),iter_(iter),prefetch_iters_(prefetch_iters),prefetch_num_(prefetch_num) {}
+        db_(db),iter_(iter),prefetch_iter_(prefetch_iter),prefetch_num_(prefetch_num) {}
 
   DBPreFetchIter(const DBPreFetchIter&) = delete;
   DBPreFetchIter& operator=(const DBPreFetchIter&) = delete;
@@ -48,10 +49,9 @@ class DBPreFetchIter : public Iterator {
     if(prefetch_thread.joinable()){
       stop_flag.store(true);
       prefetch_thread.join();
-      for(auto iter:prefetch_iters_){
-        delete iter;
-      }
+      delete prefetch_iter_;
     }
+    else delete prefetch_iter_;
     std::cout<<"fetch:"<<fetched_<<" unfetch:"<<unfetched_<<"\n";
     delete iter_; 
   }
@@ -60,13 +60,13 @@ class DBPreFetchIter : public Iterator {
     return iter_->key();
   }
   Slice value() const override {
-    if(cur_pos>0&&cur_pos<1000000&&prefetched_array[cur_pos].load()){
+    if(cur_pos>=0&&cur_pos<=1000000&&prefetched_array[cur_pos].load()){
       fetched_++;
       return prefetch_array[cur_pos];
     }
     else{
       unfetched_++;
-      return GetAndParseTrueValue(iter_);
+      return GetAndParseTrueValue(iter_->value());
     }
   }
   Status status() const override {
@@ -80,86 +80,153 @@ class DBPreFetchIter : public Iterator {
   void SeekToLast() override;
 
  private:
-   Slice GetAndParseTrueValue(Iterator* iter)const{
-    Slice tmp_value=iter->value();
+   Slice GetAndParseTrueValue(Slice tmp_value)const{
     Slice key;
-    if(tmp_value.size()==0)return tmp_value;
-    if(tmp_value.data()[0]==0x00){
+    if(tmp_value.size()==0){
+      return Slice();
+    }
+    if(tmp_value.data()[0]==(char)(0x00)){
       tmp_value.remove_prefix(1);
-      return tmp_value;
+      char* s=new char[tmp_value.size()];
+      memcpy(s,tmp_value.data(),tmp_value.size());
+      return Slice(s,tmp_value.size());
     }
     tmp_value.remove_prefix(1);
-    uint64_t file_id,valuelog_offset,valuelog_len;
+    uint64_t file_id,valuelog_offset;
     bool res=GetVarint64(&tmp_value,&file_id);
     if(!res)assert(0);
     res=GetVarint64(&tmp_value,&valuelog_offset);
     if(!res)assert(0);
-    db_->ReadValueLog(file_id,valuelog_offset, &key, &tmp_value);
+    
+    Status s=db_->ReadValueLog(file_id,valuelog_offset, &key, &tmp_value);
+    if(!s.ok()){
+      std::cout<<std::string(tmp_value.data(),tmp_value.size())<<std::endl;
+      assert(0);
+    }
     return tmp_value;
   }
 
+
   void PreFetchThreadForward(){
     std::thread prefetch_threads[prefetch_num_];
+    std::queue<std::pair<std::string,int>> q;
+    port::Mutex* lock=new port::Mutex();
+    port::CondVar* cv=new port::CondVar(lock);
+    bool local_stop_flag=false;
+    int remaining_task_cnt=0;
+    bool main_finish=false;
     for(int i=0;i<prefetch_num_;i++){
-      Iterator* prefetch_iter_=prefetch_iters_[i];
-      int skip_num=i;
-      prefetch_threads[i]=std::thread([this,prefetch_iter_,skip_num]() {
-        int pos=skip_num;
-        for(int j=0;j<skip_num;j++){
-          if(prefetch_iter_->Valid())prefetch_iter_->Next();
-        }
-        while(prefetch_iter_->Valid()){
-          Slice key_=prefetch_iter_->key();
-          std::string str_key=std::string(key_.data(),key_.size());
-          Slice val=GetAndParseTrueValue(prefetch_iter_);
-          prefetch_array[pos]=val;
-          prefetched_array[pos].store(true);
-          if(stop_flag.load()||pos>1000000){
-            break;
+      prefetch_threads[i]=std::thread([this,&q,&lock,&cv,&local_stop_flag,&remaining_task_cnt,&main_finish]() 
+        {
+          Slice val;
+          int pos;
+          while(1){
+            lock->Lock();
+            while(q.empty()&&!local_stop_flag&&!(remaining_task_cnt==0&&main_finish)){
+              cv->Wait();
+            }
+            if(local_stop_flag||(remaining_task_cnt==0&&main_finish)){
+              cv->SignalAll();
+              lock->Unlock();
+              break;
+            }
+            std::string s=q.front().first;
+            pos=q.front().second;
+            q.pop();
+            remaining_task_cnt--;
+            lock->Unlock();
+            val=GetAndParseTrueValue(s);
+            prefetch_array[pos]=val;
+            prefetched_array[pos].store(true);
           }
-          for(int j=0;j<prefetch_num_;j++){
-            if(prefetch_iter_->Valid())prefetch_iter_->Next();
-          }
-          pos+=prefetch_num_+1;
         }
-      });
+      );
     }
+    Slice val;
+    int pos=0;
+    for(int i=0;i<100&&prefetch_iter_->Valid();i++){
+      prefetch_iter_->Next();
+      pos++;
+    }
+    for(;prefetch_iter_->Valid()&&!stop_flag.load()&&pos<1000000;prefetch_iter_->Next()){
+      val=prefetch_iter_->value();
+      lock->Lock();
+      q.push({std::string(val.data(),val.size()),pos});
+      cv->Signal();
+      remaining_task_cnt++;
+      lock->Unlock();
+      pos++;
+    }
+
+    lock->Lock();
+    main_finish=true;
+    while(remaining_task_cnt){
+      cv->Wait();
+    }
+    lock->Unlock();
+    cv->SignalAll();
 
     for (auto& thread : prefetch_threads) {
         if (thread.joinable()) {
             thread.join();
         }
     }
-
-    
   }
 
    void PreFetchThreadBackward(){
     std::thread prefetch_threads[prefetch_num_];
+    std::queue<std::pair<std::string,int>> q;
+    port::Mutex* lock=new port::Mutex();
+    port::CondVar* cv=new port::CondVar(lock);
+    bool local_stop_flag=false;
+    int remaining_task_cnt=0;
+    bool main_finish=false;
     for(int i=0;i<prefetch_num_;i++){
-      Iterator* prefetch_iter_=prefetch_iters_[i];
-      int skip_num=i;
-      prefetch_threads[i]=std::thread([this,prefetch_iter_,skip_num]() {
-        int pos=1000000-skip_num;
-        for(int j=0;j<skip_num;j++){
-          if(prefetch_iter_->Valid())prefetch_iter_->Prev();
-        }
-        while(prefetch_iter_->Valid()){
-          Slice key_=prefetch_iter_->key();
-          std::string str_key=std::string(key_.data(),key_.size());
-          Slice val=GetAndParseTrueValue(prefetch_iter_);
-          if(stop_flag.load()||pos<0){
-            break;
+      prefetch_threads[i]=std::thread([this,&q,&lock,&cv,&local_stop_flag,&remaining_task_cnt,&main_finish]() 
+        {
+          Slice val;
+          int pos;
+          while(1){
+            lock->Lock();
+            while(q.empty()&&!local_stop_flag&&!(remaining_task_cnt==0&&main_finish)){
+              cv->Wait();
+            }
+            if(local_stop_flag||(remaining_task_cnt==0&&main_finish)){
+              cv->SignalAll();
+              lock->Unlock();
+              break;
+            }
+            std::string s=q.front().first;
+            pos=q.front().second;
+            q.pop();
+            remaining_task_cnt--;
+            lock->Unlock();
+            val=GetAndParseTrueValue(s);
+            prefetch_array[pos]=val;
+            prefetched_array[pos].store(true);
           }
-          prefetch_array[pos]=val;
-          prefetched_array[pos].store(true);
-          for(int j=0;j<prefetch_num_;j++){
-            if(prefetch_iter_->Valid())prefetch_iter_->Prev();
-          }
-          pos-=prefetch_num_+1;
         }
-      });
+      );
     }
+    Slice val;
+    int pos=1000000;
+    for(;prefetch_iter_->Valid()&&!stop_flag.load()&&pos>=0;prefetch_iter_->Prev()){
+      val=prefetch_iter_->value();
+      lock->Lock();
+      q.push({std::string(val.data(),val.size()),pos});
+      cv->Signal();
+      remaining_task_cnt++;
+      lock->Unlock();
+      pos--;
+    }
+
+    lock->Lock();
+    main_finish=true;
+    while(remaining_task_cnt){
+      cv->Wait();
+    }
+    lock->Unlock();
+    cv->SignalAll();
 
     for (auto& thread : prefetch_threads) {
         if (thread.joinable()) {
@@ -171,9 +238,8 @@ class DBPreFetchIter : public Iterator {
   
   DBImpl* db_;
   Iterator* const iter_;
-  std::vector<Iterator*> const prefetch_iters_;
+  Iterator* const prefetch_iter_;
   int prefetch_num_;
-  IterPos iter_pos_;
   std::atomic<bool> stop_flag;
   Slice prefetch_array[1000005];
   std::atomic<bool> prefetched_array[1000005];
@@ -191,15 +257,15 @@ void DBPreFetchIter::Prev() {
 
 void DBPreFetchIter::Seek(const Slice& target) {
   iter_->Seek(target);
-  cur_pos=0;
-  for(auto prefetch_iter_:prefetch_iters_)
-    prefetch_iter_->Seek(target);
+  
   if(prefetch_thread.joinable()){
     stop_flag.store(true);
     prefetch_thread.join();
-    for(int i=0;i<1000000;i++)prefetched_array[i]=false;
     stop_flag=false;
   }
+  for(int i=0;i<=1000000;i++)prefetched_array[i]=false;
+  cur_pos=0;
+  prefetch_iter_->Seek(target);
   prefetch_thread=std::thread([this]() {
       PreFetchThreadForward();
   });
@@ -207,37 +273,38 @@ void DBPreFetchIter::Seek(const Slice& target) {
 
 void DBPreFetchIter::SeekToFirst() {
   iter_->SeekToFirst();
-  cur_pos=0;
-  for(auto prefetch_iter_:prefetch_iters_)
-    prefetch_iter_->SeekToFirst();
+  
   if(prefetch_thread.joinable()){
     stop_flag.store(true);
     prefetch_thread.join();
-    for(int i=0;i<1000000;i++)prefetched_array[i]=false;
     stop_flag=false;
   }
+  for(int i=0;i<=1000000;i++)prefetched_array[i]=false;
+  cur_pos=0;
+  prefetch_iter_->SeekToFirst();
   prefetch_thread=std::thread([this]() {
       PreFetchThreadForward();
   });
   }
 void DBPreFetchIter::SeekToLast() {
   iter_->SeekToLast();
-  cur_pos=1000000;
-  for(auto prefetch_iter_:prefetch_iters_)
-    prefetch_iter_->SeekToLast();
+  
   if(prefetch_thread.joinable()){
     stop_flag.store(true);
     prefetch_thread.join();
-    for(int i=0;i<1000000;i++)prefetched_array[i]=false;
     stop_flag=false;
   }
+  for(int i=0;i<=1000000;i++)prefetched_array[i]=false;
+  cur_pos=1000000;
+  
   prefetch_thread=std::thread([this]() {
+      prefetch_iter_->SeekToLast();
       PreFetchThreadBackward();
   });
 }
 
 }  // anonymous namespace
-Iterator* NewPreFetchIterator(DBImpl* db,Iterator* db_iter,std::vector<Iterator*> prefetch_iters,int prefetch_num) {
-  return new DBPreFetchIter(db,db_iter,prefetch_iters,prefetch_num);
+Iterator* NewPreFetchIterator(DBImpl* db,Iterator* db_iter,Iterator* prefetch_iter,int prefetch_num) {
+  return new DBPreFetchIter(db,db_iter,prefetch_iter,prefetch_num);
 }
 }  // namespace leveldb

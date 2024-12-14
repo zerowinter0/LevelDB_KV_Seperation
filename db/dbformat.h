@@ -45,7 +45,9 @@ static const int kMaxMemCompactLevel = 2;
 static const int kReadBytesPeriod = 1048576;
 
 // maximum size of value_log file
-static const int value_log_size=4<<24;
+static const int value_log_size=64<<20;
+
+static const int mem_value_log_number=(2<<30)/(value_log_size);
 
 }  // namespace config
 

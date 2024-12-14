@@ -1263,19 +1263,17 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
   int iter_num=24;
-  std::vector<Iterator*> iters(iter_num, nullptr);
-  for(int i=0;i<iter_num;i++){
-    Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
-    auto db_iter=NewDBIterator(this, user_comparator(), iter,
-                        (options.snapshot != nullptr
-                              ? static_cast<const SnapshotImpl*>(options.snapshot)
-                                    ->sequence_number()
-                              : latest_snapshot),
-                        seed);
-    iters[i]=db_iter;
-  }
+  Iterator* iter_prefetch = NewInternalIterator(options, &latest_snapshot, &seed);
+  auto db_iter_prefetch=NewDBIterator(this, user_comparator(), iter_prefetch,
+                      (options.snapshot != nullptr
+                            ? static_cast<const SnapshotImpl*>(options.snapshot)
+                                  ->sequence_number()
+                            : latest_snapshot),
+                      seed);
 
-  Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
+  SequenceNumber useless_snapshot;
+
+  Iterator* iter = NewInternalIterator(options, &useless_snapshot, &seed);
   auto db_iter=NewDBIterator(this, user_comparator(), iter,
                       (options.snapshot != nullptr
                             ? static_cast<const SnapshotImpl*>(options.snapshot)
@@ -1284,7 +1282,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
                       seed);
   
   
-  return NewPreFetchIterator(this,db_iter,iters,iter_num);
+  return NewPreFetchIterator(this,db_iter,db_iter_prefetch,iter_num);
 }
 
 void DBImpl::RecordReadSample(Slice key) {
@@ -1705,6 +1703,7 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
 
   // Now seek to the actual key position and read the key
   inFile.seekg(offset + sizeof(uint64_t));
+  if(key_len>10000)assert(0);
   char* key_buf = new char[key_len];
   inFile.read(key_buf, key_len);
   if (!inFile.good()) {

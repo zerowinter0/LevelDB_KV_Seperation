@@ -81,7 +81,6 @@ class DBPreFetchIter : public Iterator {
 
  private:
    std::string GetAndParseTrueValue(Slice tmp_value)const{
-    Slice key;
     if(tmp_value.size()==0){
       return "";
     }
@@ -96,8 +95,8 @@ class DBPreFetchIter : public Iterator {
     res=GetVarint64(&tmp_value,&valuelog_offset);
     if(!res)assert(0);
     std::string str;
-    Status s=db_->ReadValueLog(file_id,valuelog_offset, &key, &str);
-    return str;
+    Status s=db_->ReadValueLog(file_id,valuelog_offset, &str);
+    return std::move(str);
   }
 
 

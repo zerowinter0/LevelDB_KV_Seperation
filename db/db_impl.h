@@ -69,7 +69,7 @@ class DBImpl : public DB {
   std::vector<std::pair<uint64_t, uint64_t>> WriteValueLog(
       std::vector<std::pair<Slice, Slice>> value) override;
   void addNewValueLog() override EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-  ;
+  
   std::pair<WritableFile*, uint64_t> getNewValuelog();  // use for compaction
   // Status ReadValueLog(uint64_t file_id, uint64_t offset,Slice*
   // value)override;
@@ -100,6 +100,11 @@ class DBImpl : public DB {
   // Samples are taken approximately once every config::kReadBytesPeriod
   // bytes.
   void RecordReadSample(Slice key);
+
+  void InitializeExistingLogs();
+
+  uint64_t ReadFileSize(uint64_t log_number);
+
 
  private:
   friend class DB;
@@ -230,6 +235,9 @@ class DBImpl : public DB {
   uint64_t valuelogfile_number_;
   log::Writer* log_;
   std::map<uint64_t, uint64_t> oldvaluelog_ids;
+  std::map<uint64_t, uint64_t> valuelog_usage;
+  std::map<uint64_t, uint64_t> valuelog_origin;
+
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.

@@ -119,7 +119,7 @@ class LEVELDB_EXPORT DB {
   //   assert(0);  // Not implemented
   //   return Status::Corruption("not imp");
   // }
-  virtual Status ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key, Slice* value){
+  virtual Status ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key, std::string* value){
     assert(0);  // Not implemented
     return Status::Corruption("not imp");
   }

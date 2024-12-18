@@ -11,9 +11,10 @@
 #include <atomic>
 #include <deque>
 #include <map>
+#include <unordered_map>
 #include <mutex>
-#include <set>
 #include <shared_mutex>
+#include <set>
 #include <string>
 
 #include "leveldb/db.h"
@@ -71,10 +72,8 @@ class DBImpl : public DB {
   void addNewValueLog() override EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   ;
   std::pair<WritableFile*, uint64_t> getNewValuelog();  // use for compaction
-  // Status ReadValueLog(uint64_t file_id, uint64_t offset,Slice*
-  // value)override;
   Status ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
-                      Slice* value) override;
+                      std::string* value) override;
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -230,7 +229,14 @@ class DBImpl : public DB {
   uint64_t valuelogfile_number_;
   log::Writer* log_;
   std::map<uint64_t, uint64_t> oldvaluelog_ids;
-  std::map<uint64_t,RandomAccessFile*> mem_valuelogs;
+
+  struct mem_valuelog{
+    RandomAccessFile* file;
+    int ref=0;
+  };
+
+  std::shared_mutex mem_valuelog_mutex;
+  std::unordered_map<uint64_t,mem_valuelog> mem_valuelogs; GUARDED_BY(mem_valuelog_mutex);
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.

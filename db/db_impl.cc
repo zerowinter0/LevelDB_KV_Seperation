@@ -1243,19 +1243,19 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   }
   Slice value_log_slice = Slice(value->c_str() + 1, value->length());
   Slice new_key;
-  Slice new_value;
   int value_offset = sizeof(uint64_t) * 2;  // 16
   uint64_t file_id, valuelog_offset;
   bool res = GetVarint64(&value_log_slice, &file_id);
   if (!res) return Status::Corruption("can't decode file id");
   res = GetVarint64(&value_log_slice, &valuelog_offset);
   if (!res) return Status::Corruption("can't decode valuelog offset");
-  s = ReadValueLog(file_id, valuelog_offset, &new_key, &new_value);
-  if (!s.ok()) {
-    return s;
+  
+  {
+    mutex_.Unlock();
+    s = ReadValueLog(file_id, valuelog_offset, &new_key, value);
+    mutex_.Lock();
   }
-  *value = std::string(new_value.data(), new_value.size());
-  delete[] new_value.data();
+  
   return s;
 }
 
@@ -1674,82 +1674,79 @@ void DBImpl::addNewValueLog() {
 }
 
 Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset, Slice* key,
-                            Slice* value) {
+                            std::string* value) {
+  mutex_.Lock();
+  if(file_id==valuelogfile_number_){
+    mutex_.Unlock();
+    std::string file_name_ = ValueLogFileName(dbname_, file_id);
+    std::ifstream inFile(file_name_, std::ios::in | std::ios::binary);
+    uint64_t key_len,value_len;
+    inFile.seekg(offset);
+    inFile.read((char*)(&key_len),sizeof(uint64_t));
+
+    char* key_buf=new char[key_len];
+    inFile.read(key_buf,key_len);
+    *key=Slice(key_buf,key_len);
+
+    inFile.read((char*)(&value_len),sizeof(uint64_t));
+
+    char buf[value_len];
+    inFile.read(buf,value_len);
+    *value=std::string(buf,value_len);
+    return Status::OK();
+  }
+  
+  mutex_.Unlock();
+
+  
   Status s = Status::OK();
-  std::string file_name_ = ValueLogFileName(dbname_, file_id);
-
-  // Open the file in binary mode for reading
-  std::ifstream inFile(file_name_, std::ios::in | std::ios::binary);
-  if (!inFile.is_open()) {
-    std::cerr << "Failed to open file: " << file_name_ << " for read valuelog!"
-              << std::endl;
-    return Status::Corruption("Failed to open file for reading!");
+  leveldb::RandomAccessFile* valuelog_file;
+  mem_valuelog_mutex.lock_shared();
+  if(mem_valuelogs.count(file_id)){
+    valuelog_file=mem_valuelogs[file_id].file;
+    //mem_valuelogs[file_id].ref++;
+    mem_valuelog_mutex.unlock_shared();
+  }
+  else{
+    mem_valuelog_mutex.unlock_shared();
+    std::string file_name_ = ValueLogFileName(dbname_, file_id);
+    env_->NewRandomAccessFile(file_name_,&valuelog_file);
+    mem_valuelog tmp;
+    tmp.file=valuelog_file;
+    tmp.ref=1;
+    mem_valuelog_mutex.lock();
+    mem_valuelogs[file_id]=tmp;
+    mem_valuelog_mutex.unlock();
   }
 
-  // Seek to the position of key length
-  inFile.seekg(offset);
+  char buf[sizeof(uint64_t)];
+  Slice res;
+  s=valuelog_file->Read(offset,sizeof(uint64_t),&res,buf);
+  assert(s.ok());
+  uint64_t key_len=*(uint64_t*)(res.data());
 
-  // Read the length of the key
-  char* key_buf_len = new char[sizeof(uint64_t)];
-  inFile.read(key_buf_len, sizeof(uint64_t));
-  uint64_t key_len = 0;
-  std::memcpy(&key_len, key_buf_len, sizeof(uint64_t));
+  char*key_buf=new char[key_len];
 
-  if (!inFile.good()) {
-    delete[] key_buf_len;
-    inFile.close();
-    return Status::Corruption("Failed to read key length from file!");
-  }
+  s=valuelog_file->Read(offset+sizeof(uint64_t),key_len,&res,key_buf);
+  assert(s.ok());
+  *key=Slice(key_buf,key_len);
 
-  // Now seek to the actual key position and read the key
-  inFile.seekg(offset + sizeof(uint64_t));
-  if(key_len>10000)assert(0);
-  char* key_buf = new char[key_len];
-  inFile.read(key_buf, key_len);
-  if (!inFile.good()) {
-    delete[] key_buf;
-    delete[] key_buf_len;
-    inFile.close();
-    return Status::Corruption("Failed to read key from file!");
-  }
+  s=valuelog_file->Read(offset+sizeof(uint64_t)+key_len,sizeof(uint64_t),&res,buf);
+  assert(s.ok());
+  uint64_t value_len=*(uint64_t*)(res.data());
 
-  // Assign the read key data to the Slice
-  *key = Slice(key_buf, key_len);
+  char value_buf[value_len];
+  s=valuelog_file->Read(offset+sizeof(uint64_t)+key_len+sizeof(uint64_t),value_len,&res,value_buf);
+  assert(s.ok());
+  *value=std::string(res.data(),res.size());
 
-  // Read the length of the value
-  inFile.seekg(offset + sizeof(uint64_t) + key_len);
-  char* value_buf_len = new char[sizeof(uint64_t)];
-  inFile.read(value_buf_len, sizeof(uint64_t));
-  uint64_t val_len = 0;
-  std::memcpy(&val_len, value_buf_len, sizeof(uint64_t));
-
-  if (!inFile.good()) {
-    delete[] key_buf;
-    delete[] key_buf_len;
-    delete[] value_buf_len;
-    inFile.close();
-    return Status::Corruption("Failed to read value length from file!");
-  }
-
-  // Now seek to the actual data position and read the value
-  inFile.seekg(offset + sizeof(uint64_t) + key_len + sizeof(uint64_t));
-  char* value_buf = new char[val_len];
-  inFile.read(value_buf, val_len);
-  if (!inFile.good()) {
-    delete[] key_buf;
-    delete[] key_buf_len;
-    delete[] value_buf_len;
-    delete[] value_buf;
-    inFile.close();
-    return Status::Corruption("Failed to read value from file!");
-  }
-
-  // Close the file after reading
-  inFile.close();
-
-  // Assign the read value data to the Slice
-  *value = Slice(value_buf, val_len);
-
+  // mem_valuelog_mutex.Lock();
+  // mem_valuelogs[file_id].ref--;
+  // if(mem_valuelogs.size()>100&&mem_valuelogs[file_id].ref==0){
+  //   delete mem_valuelogs[file_id].file;
+  //   mem_valuelogs.erase(file_id);
+  // }
+  // mem_valuelog_mutex.Unlock();
   return s;
 }
 

@@ -235,13 +235,7 @@ class DBImpl : public DB {
   log::Writer* log_;
   std::map<uint64_t, uint64_t> oldvaluelog_ids;
 
-  struct mem_valuelog{
-    RandomAccessFile* file;
-    int ref=0;
-  };
-
-  std::shared_mutex mem_valuelog_mutex;
-  std::unordered_map<uint64_t,mem_valuelog> mem_valuelogs; GUARDED_BY(mem_valuelog_mutex);
+  Cache* valuelog_cache;
   std::map<uint64_t, uint64_t> valuelog_usage;
   std::map<uint64_t, uint64_t> valuelog_origin;
 

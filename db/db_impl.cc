@@ -154,11 +154,13 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       background_compaction_scheduled_(false),
       background_garbage_collect_scheduled_(false),
       manual_compaction_(nullptr),
+      valuelog_cache(NewLRUCache(config::mem_value_log_number)),
       versions_(new VersionSet(dbname_, &options_, table_cache_,
                                &internal_comparator_)) {
       InitializeExistingLogs();
       // std::cout<<"init map"<<std::endl;
       }
+      
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish.
@@ -188,6 +190,7 @@ DBImpl::~DBImpl() {
   delete log_;
   delete logfile_;
   delete table_cache_;
+  delete valuelog_cache;
 
   if (owns_info_log_) {
     delete options_.info_log;
@@ -1746,12 +1749,19 @@ void DBImpl::addNewValueLog() {
   }
 }
 
+static void valuelog_cache_deleter(const leveldb::Slice &key, void *value){
+  delete (RandomAccessFile*)value;
+}
+
 Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
                             std::string* value) {
+
+  std::string file_name_ = ValueLogFileName(dbname_, file_id);
+
   mutex_.Lock();
   if(file_id==valuelogfile_number_){
     mutex_.Unlock();
-    std::string file_name_ = ValueLogFileName(dbname_, file_id);
+    
     std::ifstream inFile(file_name_, std::ios::in | std::ios::binary);
     uint64_t value_len;
     inFile.seekg(offset);
@@ -1767,25 +1777,18 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
 
   
   Status s = Status::OK();
-  leveldb::RandomAccessFile* valuelog_file;
-  mem_valuelog_mutex.lock_shared();
-  if(mem_valuelogs.count(file_id)){
-    valuelog_file=mem_valuelogs[file_id].file;
-    //mem_valuelogs[file_id].ref++;
-    mem_valuelog_mutex.unlock_shared();
+  Cache::Handle* handler=nullptr;
+  if(handler=valuelog_cache->Lookup(file_name_)){
+    //
   }
   else{
-    mem_valuelog_mutex.unlock_shared();
-    std::string file_name_ = ValueLogFileName(dbname_, file_id);
-    env_->NewRandomAccessFile(file_name_,&valuelog_file);
-    mem_valuelog tmp;
-    tmp.file=valuelog_file;
-    tmp.ref=1;
-    mem_valuelog_mutex.lock();
-    mem_valuelogs[file_id]=tmp;
-    mem_valuelog_mutex.unlock();
+    RandomAccessFile* new_file;
+    s=env_->NewRandomAccessFile(file_name_,&new_file);
+    assert(s.ok());
+    handler=valuelog_cache->Insert(file_name_,new_file,1,&valuelog_cache_deleter);
   }
-
+  
+  leveldb::RandomAccessFile* valuelog_file=(RandomAccessFile*)(valuelog_cache->Value(handler));
   char buf[sizeof(uint64_t)];
   Slice res;
   s=valuelog_file->Read(offset,sizeof(uint64_t),&res,buf);
@@ -1795,15 +1798,9 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
   char value_buf[value_len];
   s=valuelog_file->Read(offset+sizeof(uint64_t),value_len,&res,value_buf);
   assert(s.ok());
+  valuelog_cache->Release(handler);
   *value=std::string(res.data(),res.size());
 
-  // mem_valuelog_mutex.Lock();
-  // mem_valuelogs[file_id].ref--;
-  // if(mem_valuelogs.size()>100&&mem_valuelogs[file_id].ref==0){
-  //   delete mem_valuelogs[file_id].file;
-  //   mem_valuelogs.erase(file_id);
-  // }
-  // mem_valuelog_mutex.Unlock();
   return s;
 }
 

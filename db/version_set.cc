@@ -984,7 +984,7 @@ Status VersionSet::Recover(bool* save_manifest) {
   for (const auto& filename:filenames) {
     if (IsValueLogFile(filename)){
       uint64_t valuelog_number = GetValueLogID(filename);
-      std::cout<<valuelog_number<<std::endl;
+      //std::cout<<valuelog_number<<std::endl;
       MarkFileNumberUsed(valuelog_number);
     }
   }

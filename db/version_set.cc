@@ -909,6 +909,7 @@ Status VersionSet::Recover(bool* save_manifest) {
   uint64_t last_sequence = 0;
   uint64_t log_number = 0;
   uint64_t prev_log_number = 0;
+  next_file_number_ = 0;
   Builder builder(this, current_);
   int read_records = 0;
 
@@ -977,12 +978,24 @@ Status VersionSet::Recover(bool* save_manifest) {
     MarkFileNumberUsed(log_number);
   }
 
+  assert(s.ok());
+  std::vector<std::string> filenames;
+  env_->GetChildren(dbname_, &filenames);
+  for (const auto& filename:filenames) {
+    if (IsValueLogFile(filename)){
+      uint64_t valuelog_number = GetValueLogID(filename);
+      std::cout<<valuelog_number<<std::endl;
+      MarkFileNumberUsed(valuelog_number);
+    }
+  }
+
   if (s.ok()) {
     Version* v = new Version(this);
     builder.SaveTo(v);
     // Install recovered version
     Finalize(v);
     AppendVersion(v);
+    if(next_file<next_file_number_)next_file=next_file_number_;
     manifest_file_number_ = next_file;
     next_file_number_ = next_file + 1;
     last_sequence_ = last_sequence;

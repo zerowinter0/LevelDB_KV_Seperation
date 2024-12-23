@@ -1357,10 +1357,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
-    WriteBatchInternal::ConverToValueLog(write_batch, this);
+
     
-    WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
-    last_sequence += WriteBatchInternal::Count(write_batch);
 
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
@@ -1368,6 +1366,12 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     // into mem_.
     {
       mutex_.Unlock();
+
+      WriteBatchInternal::ConverToValueLog(write_batch, this);
+      WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
+      last_sequence += WriteBatchInternal::Count(write_batch);
+
+
       status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
       bool sync_error = false;
       if (status.ok() && options.sync) {
@@ -1697,7 +1701,7 @@ std::vector<std::pair<uint64_t, uint64_t>> DBImpl::WriteValueLog(
   assert(valueFile.good());
 
   // 解锁资源或进行其他清理操作
-  valueFile.flush(); // 确保所有缓冲区的数据都被写入文件
+  //valueFile.flush(); // 确保所有缓冲区的数据都被写入文件
   valueFile.close();
   return res;
 }

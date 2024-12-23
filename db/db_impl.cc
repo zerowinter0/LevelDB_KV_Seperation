@@ -170,6 +170,7 @@ DBImpl::~DBImpl() {
   }
   background_garbage_collect_scheduled_=true;
   gc_mutex_.Unlock();
+  if(gc_thread&&gc_thread->joinable())gc_thread->join();
   mutex_.Lock();
   shutting_down_.store(true, std::memory_order_release);
   while (background_compaction_scheduled_) {
@@ -725,8 +726,7 @@ void DBImpl::MaybeScheduleGarbageCollect() {
     gc_mutex_.Lock();
     background_garbage_collect_scheduled_ = true;
     gc_mutex_.Unlock();
-    auto bg_thread_ = std::thread(&DBImpl::BGWorkGC, this);
-    bg_thread_.detach();
+    gc_thread =new std::thread(&DBImpl::BGWorkGC, this);
   }
 }
 
@@ -1345,7 +1345,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   w.done = false;
 
   MutexLock l(&mutex_);
-  if(!options.valuelog_write&&valuelog_finding_key.size()>0){
+  if(!options.valuelog_write&&updates&&valuelog_finding_key.size()>0){
     WriteBatchInternal::checkValueLog(updates, this,&valuelog_finding_key,&lock_valuelog_key_mutex_cond_);
   }
   writers_.push_back(&w);

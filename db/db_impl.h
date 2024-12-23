@@ -11,6 +11,7 @@
 #include <atomic>
 #include <deque>
 #include <map>
+#include <thread>
 #include <unordered_map>
 #include <mutex>
 #include <shared_mutex>
@@ -237,6 +238,8 @@ class DBImpl : public DB {
   Cache* valuelog_cache;
   std::map<uint64_t, uint64_t> valuelog_usage;
   std::map<uint64_t, uint64_t> valuelog_origin;
+
+  std::thread* gc_thread=nullptr;
 
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 

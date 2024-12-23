@@ -1963,9 +1963,10 @@ void DBImpl::GarbageCollect() {
       status = Put(write_op, key, value);
 
       mutex_.Lock();
-      valuelog_finding_key="";
-      mutex_.Unlock();
+      valuelog_finding_key=Slice();
       lock_valuelog_key_mutex_cond_.SignalAll();
+      mutex_.Unlock();
+      
 
       if (!status.ok()) {
         std::cerr << "Error accessing sstable: " << status.ToString()

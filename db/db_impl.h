@@ -213,8 +213,7 @@ class DBImpl : public DB {
   // State below is protected by mutex_
   port::Mutex mutex_;
   port::Mutex gc_mutex_;
-  port::Mutex spj_mutex_;
-  port::CondVar spj_mutex_cond_ GUARDED_BY(spj_mutex_);
+  port::CondVar lock_valuelog_key_mutex_cond_ GUARDED_BY(mutex_);
   
 
   // std::shared_mutex value_log_mutex;
@@ -222,7 +221,7 @@ class DBImpl : public DB {
   port::CondVar background_work_finished_signal_ GUARDED_BY(mutex_);
   port::CondVar background_gc_finished_signal_ GUARDED_BY(gc_mutex_);
 
-  Slice valuelog_finding_key="" GUARDED_BY(spj_mutex_ );
+  Slice valuelog_finding_key="" GUARDED_BY(mutex_ );
 
   MemTable* mem_;
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted

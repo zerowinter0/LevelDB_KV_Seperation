@@ -159,13 +159,66 @@ class ValueLogInserter : public WriteBatch::Handler {
     writeBatch_.Delete(key);
   }
 };
+
+class ValueLogChecker : public WriteBatch::Handler {
+  public:
+  std::vector<Slice> keys;
+  DB* db_;
+  Slice* lock_key_;
+  port::CondVar* cond_var_;
+  ValueLogChecker(DB* db,Slice* lock_key,port::CondVar* cond_var){
+    db_=db;
+    lock_key_=lock_key;
+    cond_var_=cond_var;
+  }
+
+  void Put(const Slice& key, const Slice& value) override {
+    keys.push_back(key);
+  }
+  
+  void Delete(const Slice& key) override {
+    keys.push_back(key);
+  }
+
+  void CheckValid(){
+    int len=keys.size();
+    if(!len)return;
+    int l=0;
+    int r=len-1;
+    bool locked=false;
+    while(1){
+      locked=false;
+      while(keys[l]==*lock_key_){
+        cond_var_->Wait();
+        locked=true;
+      }
+      if(locked){
+        r=l;//a full round to make sure no key = current lock_key
+      }
+      else if(l==r)break;
+      if(++l==len)l=0;
+    }
+  }
+};
 }  // namespace
+
+
+
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* memtable) {
   MemTableInserter inserter;
   inserter.sequence_ = WriteBatchInternal::Sequence(b);
   inserter.mem_ = memtable;
   return b->Iterate(&inserter);
+}
+
+Status WriteBatchInternal::checkValueLog(WriteBatch* b,DB* db_,Slice* lock_key,port::CondVar* cond_var_){
+  if(lock_key->size()>0){
+    ValueLogChecker checker(db_,lock_key,cond_var_);
+    b->Iterate(&checker);
+    checker.CheckValid();
+  }
+  return Status::OK();
 }
 
 Status WriteBatchInternal::ConverToValueLog(WriteBatch* b,DB* db_){

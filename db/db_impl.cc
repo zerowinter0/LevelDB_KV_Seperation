@@ -142,7 +142,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       shutting_down_(false),
       background_work_finished_signal_(&mutex_),
       background_gc_finished_signal_(&gc_mutex_),
-      spj_mutex_cond_(&spj_mutex_),
+      lock_valuelog_key_mutex_cond_(&mutex_),
       mem_(nullptr),
       imm_(nullptr),
       has_imm_(false),
@@ -1330,13 +1330,6 @@ void DBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
-  if(!o.valuelog_write){
-    spj_mutex_.Lock();
-    while(key==valuelog_finding_key){
-      spj_mutex_cond_.Wait();
-    }
-    spj_mutex_.Unlock();
-  }
   
   return DB::Put(o, key, val);
 }
@@ -1352,6 +1345,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   w.done = false;
 
   MutexLock l(&mutex_);
+  if(!options.valuelog_write&&valuelog_finding_key.size()>0){
+    WriteBatchInternal::checkValueLog(updates, this,&valuelog_finding_key,&lock_valuelog_key_mutex_cond_);
+  }
   writers_.push_back(&w);
   while (!w.done && &w != writers_.front()) {
     w.cv.Wait();
@@ -1367,6 +1363,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
     WriteBatchInternal::ConverToValueLog(write_batch, this);
+    
     WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
     last_sequence += WriteBatchInternal::Count(write_batch);
 
@@ -1908,9 +1905,9 @@ void DBImpl::GarbageCollect() {
       std::string stored_value;
 
       //lock those thread who attempt to push "key"
-      spj_mutex_.Lock();
+      mutex_.Lock();
       valuelog_finding_key=key;
-      spj_mutex_.Unlock();
+      mutex_.Unlock();
       //wait for current writer queue to do all their thing
       {
         auto op=leveldb::WriteOptions();
@@ -1965,10 +1962,10 @@ void DBImpl::GarbageCollect() {
       write_op.valuelog_write=true;
       status = Put(write_op, key, value);
 
-      spj_mutex_.Lock();
+      mutex_.Lock();
       valuelog_finding_key="";
-      spj_mutex_.Unlock();
-      spj_mutex_cond_.SignalAll();
+      mutex_.Unlock();
+      lock_valuelog_key_mutex_cond_.SignalAll();
 
       if (!status.ok()) {
         std::cerr << "Error accessing sstable: " << status.ToString()

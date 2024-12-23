@@ -36,6 +36,8 @@ class WriteBatchInternal {
   static void SetContents(WriteBatch* batch, const Slice& contents);
 
   static Status InsertInto(const WriteBatch* batch, MemTable* memtable);
+  
+  static Status checkValueLog(WriteBatch* batch,DB* db_,Slice* lock_key,port::CondVar* cond_var_);
 
   static Status ConverToValueLog(WriteBatch* batch,DB* db_);
 

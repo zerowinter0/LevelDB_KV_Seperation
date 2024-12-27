@@ -61,6 +61,7 @@ class DBImpl : public DB {
   Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override;
   Iterator* NewIterator(const ReadOptions&) override;
+  Iterator* NewOriginalIterator(const ReadOptions&);
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
   bool GetProperty(const Slice& property, std::string* value) override;

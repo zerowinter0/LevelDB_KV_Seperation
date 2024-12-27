@@ -49,6 +49,8 @@ static const char* FLAGS_benchmarks =
     "fillsync,"
     "fillrandom,"
     "overwrite,"
+    "overwrite,"
+    "overwrite,"
     "readrandom,"
     "readrandom,"  // Extra run to allow previous compactions to quiesce
     "readseq,"

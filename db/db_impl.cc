@@ -1053,9 +1053,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
             value.remove_prefix(1);
             bool res = GetVarint64(&value, &file_id);
             if (!res) return Status::Corruption("can't decode file id");
-            if(valuelog_origin[file_id] == 0){//???
-              valuelog_origin[file_id] = valuelog_usage[file_id];
-            }
             valuelog_usage[file_id]--;
           }
         }
@@ -1276,6 +1273,25 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   return s;
 }
 
+Iterator *DBImpl::NewOriginalIterator(const ReadOptions& options) {
+  SequenceNumber latest_snapshot;
+  uint32_t seed;
+  int iter_num=24;
+
+  mutex_.Lock();
+
+  Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
+  auto db_iter=NewDBIterator(this, user_comparator(), iter,
+                      (options.snapshot != nullptr
+                            ? static_cast<const SnapshotImpl*>(options.snapshot)
+                                  ->sequence_number()
+                            : latest_snapshot),
+                      seed);
+  
+  mutex_.Unlock();
+  return db_iter;
+}
+
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
@@ -1357,7 +1373,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
-
+    WriteBatchInternal::ConverToValueLog(write_batch, this);//need lock! to protect valuelog_number
+    WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
+    last_sequence += WriteBatchInternal::Count(write_batch);
     
 
     // Add to log and apply to memtable.  We can release the lock
@@ -1366,10 +1384,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     // into mem_.
     {
       mutex_.Unlock();
-
-      WriteBatchInternal::ConverToValueLog(write_batch, this);
-      WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
-      last_sequence += WriteBatchInternal::Count(write_batch);
 
 
       status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
@@ -1634,8 +1648,11 @@ std::vector<std::pair<uint64_t, uint64_t>> DBImpl::WriteValueLog(
 
   // 如果超出fixed_size
   if(init_offset>=config::value_log_size){
-    valuelog_usage[valuelogfile_number_]=init_offset;
-    valuelog_origin[valuelogfile_number_]=init_offset;
+    uint64_t file_data_size = 0; // 文件数据大小标志位
+    valueFile.seekg(0, std::ios::beg);
+    valueFile.read(reinterpret_cast<char*>(&file_data_size), sizeof(uint64_t));
+    valuelog_usage[valuelogfile_number_]=file_data_size;
+    valuelog_origin[valuelogfile_number_]=file_data_size;
     addNewValueLog();
     valueFile.close();
     file_name_ = ValueLogFileName(dbname_, valuelogfile_number_);
@@ -1805,8 +1822,9 @@ void DBImpl::GarbageCollect() {
       auto tmp_name = ValueLogFileName(dbname_, cur_log_number);
       if (!versions_->checkOldValueLog(tmp_name) &&
           valuelog_origin[cur_log_number]) {
+            //std::cout<<((float)valuelog_usage[cur_log_number]) /(float)valuelog_origin[cur_log_number]<<std::endl;
         if (((float)valuelog_usage[cur_log_number]) /
-                    valuelog_origin[cur_log_number] <= 0.6) {
+                    (float)valuelog_origin[cur_log_number] <= 0.6) {
           valuelog_set.emplace(filename);
         }
       }
@@ -2075,12 +2093,8 @@ void DBImpl::InitializeExistingLogs() {
       valuelog_usage[cur_log_number]=0;
     }
   }
-
-  SequenceNumber latest_snapshot;
-  uint32_t seed;
-  int iter_num=24;
-  Iterator* iter= NewInternalIterator(ReadOptions(), &latest_snapshot, &seed);
-  auto db_iter=NewDBIterator(this, user_comparator(), iter,latest_snapshot,seed);
+  mutex_.Unlock();
+  auto db_iter=NewOriginalIterator(ReadOptions());
   for(db_iter->SeekToFirst();db_iter->Valid();db_iter->Next()){
     auto value=db_iter->value();
     if(value.size()&&value[0]==0x01){
@@ -2090,8 +2104,6 @@ void DBImpl::InitializeExistingLogs() {
       valuelog_usage[valuelog_id]++;
     }
   }
-
-  mutex_.Unlock();
   delete db_iter;
   mutex_.Lock();
 }

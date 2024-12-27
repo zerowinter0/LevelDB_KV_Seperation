@@ -47,7 +47,7 @@ static const int kReadBytesPeriod = 1048576;
 // maximum size of value_log file
 static const int value_log_size=1<<26;
 //1<<33/1<<26=1<<7
-static const int mem_value_log_number=1<<9;//8GB
+static const int mem_value_log_number=1<<8;//8GB
 
 }  // namespace config
 

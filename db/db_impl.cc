@@ -1766,7 +1766,7 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
   std::string file_name_ = ValueLogFileName(dbname_, file_id);
 
   mutex_.Lock();
-  if(file_id==valuelogfile_number_){
+  if(file_id==valuelogfile_number_||config::mem_value_log_number==0){
     mutex_.Unlock();
     
     std::ifstream inFile(file_name_, std::ios::in | std::ios::binary);
@@ -1776,6 +1776,7 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
 
     char buf[value_len];
     inFile.read(buf,value_len);
+    inFile.close();
     *value=std::string(buf,value_len);
     return Status::OK();
   }

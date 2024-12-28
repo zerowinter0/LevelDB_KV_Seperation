@@ -52,6 +52,8 @@ class UnorderedIter : public Iterator {
       current_file->close();
       delete current_file;
     }
+    if(buf_for_now_key)delete buf_for_now_key;
+    if(buf_for_now_value)delete buf_for_now_value;
     delete iter_; 
   }
   bool Valid() const override { return mode!=2; }
@@ -91,18 +93,25 @@ class UnorderedIter : public Iterator {
     current_file->seekg(offset);
     current_file->read((char*)(&value_len),sizeof(uint64_t));
 
-    char buf[value_len];
-    current_file->read(buf,value_len);
-    buf_for_now_value=std::string(buf,value_len);
+    if(value_len>buf_for_now_value_size){
+      buf_for_now_value_size=value_len;
+      if(buf_for_now_value)delete buf_for_now_value;
+      buf_for_now_value=new char[value_len];
+    }
+    current_file->read(buf_for_now_value,value_len);
 
     current_file->read((char*)(&key_len),sizeof(uint64_t));
 
-    char key_buf[key_len];
-    current_file->read(key_buf,key_len);
-    buf_for_now_key=std::string(key_buf,key_len);
+    if(key_len>buf_for_now_key_size){
+      buf_for_now_key_size=key_len;
+      if(buf_for_now_key)delete buf_for_now_key;
+      buf_for_now_key=new char[key_len];
+    }
 
-    now_key=Slice(buf_for_now_key);
-    now_value=Slice(buf_for_now_value);
+    current_file->read(buf_for_now_key,key_len);
+
+    now_value=Slice(buf_for_now_value,value_len);
+    now_key=Slice(buf_for_now_key,key_len);
   }
 
   
@@ -110,8 +119,10 @@ class UnorderedIter : public Iterator {
   Iterator* const iter_;
   Slice now_value;
   Slice now_key;
-  std::string buf_for_now_key;
-  std::string buf_for_now_value;
+  int buf_for_now_key_size=0;
+  char* buf_for_now_key=nullptr;
+  int buf_for_now_value_size=0;
+  char* buf_for_now_value=nullptr;
   bool iter_valid=false;
   std::map<uint64_t,std::vector<uint64_t>> valuelog_map;
   int memory_usage=0;
@@ -156,6 +167,11 @@ void UnorderedIter::Next() {
     
     valuelog_map_iter=valuelog_map.begin();
     if(valuelog_map_iter!=valuelog_map.end()){
+      
+      for(auto it=valuelog_map.begin();it!=valuelog_map.end();it++){
+        std::sort(it->second.begin(),it->second.end());
+      }
+
       std::string file_name_ = ValueLogFileName(db_name_, valuelog_map_iter->first);
       assert(!current_file);
       current_file=new std::ifstream(file_name_, std::ios::in | std::ios::binary);

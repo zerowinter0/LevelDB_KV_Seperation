@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_DB_PREFETCH_ITER_H_
-#define STORAGE_LEVELDB_DB_PREFETCH_ITER_H_
+#ifndef STORAGE_LEVELDB_DB_UNORDERED_ITER_H_
+#define STORAGE_LEVELDB_DB_UNORDERED_ITER_H_
 
 #include <cstdint>
 
@@ -15,8 +15,8 @@ namespace leveldb {
 class DBImpl;
 
 // add a prefetch function for db_iter
-Iterator* NewUnorderedIterator(DBImpl* db,Iterator* db_iter);
+Iterator* NewUnorderedIter(DBImpl* db,Iterator* db_iter,std::string db_name);
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_DB_PREFETCH_ITER_H_
+#endif  // STORAGE_LEVELDB_DB_UNORDERED_ITER_H_

@@ -17,6 +17,8 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "port/port.h"
+#include <fstream>
+#include <iostream>
 
 namespace leveldb {
 
@@ -38,23 +40,26 @@ class UnorderedIter : public Iterator {
   //     just before all entries whose user key == this->key().
   enum IterPos {Left,Mid,Right};
 
-  UnorderedIter(DBImpl* db, Iterator* iter, Iterator* prefetch_iter,int prefetch_num)
+  UnorderedIter(DBImpl* db, Iterator* iter,std::string db_name)
       : 
-        db_(db),iter_(iter),prefetch_iter_(prefetch_iter),prefetch_num_(prefetch_num) {}
+        db_(db),iter_(iter),db_name_(db_name){}
 
   UnorderedIter(const UnorderedIter&) = delete;
   UnorderedIter& operator=(const UnorderedIter&) = delete;
 
   ~UnorderedIter() override {
+    if(current_file&&current_file->is_open()){
+      current_file->close();
+      delete current_file;
+    }
     delete iter_; 
   }
-  bool Valid() const override { return iter_->Valid(); }
+  bool Valid() const override { return mode!=2; }
   Slice key() const override {
-    return iter_->key();
+    return now_key;
   }
   Slice value() const override {
-      buf_for_value=std::move(GetAndParseTrueValue(iter_->value()));
-      return Slice(buf_for_value.data(),buf_for_value.size());
+      return now_value;
   }
   Status status() const override {
     return iter_->status();
@@ -67,49 +72,155 @@ class UnorderedIter : public Iterator {
   void SeekToLast() override;
 
  private:
-   std::string GetAndParseTrueValue(Slice tmp_value)const{
-    if(tmp_value.size()==0){
-      return "";
-    }
-    if(tmp_value.data()[0]==(char)(0x00)){
-      tmp_value.remove_prefix(1);
-      return std::string(tmp_value.data(),tmp_value.size());
-    }
+   std::pair<uint64_t,uint64_t> GetAndParseValue(Slice tmp_value)const{
     tmp_value.remove_prefix(1);
     uint64_t file_id,valuelog_offset;
     bool res=GetVarint64(&tmp_value,&file_id);
     if(!res)assert(0);
     res=GetVarint64(&tmp_value,&valuelog_offset);
     if(!res)assert(0);
-    std::string str;
-    Status s=db_->ReadValueLog(file_id,valuelog_offset, &str);
-    return std::move(str);
+    return {file_id,valuelog_offset};
+  }
+
+  bool checkLongValue(Slice value){
+    return value.size()&&value.data()[0]==(0x01);
+  }
+
+  void MyReadValuelog(const uint64_t& offset){
+    uint64_t value_len,key_len;
+    current_file->seekg(offset);
+    current_file->read((char*)(&value_len),sizeof(uint64_t));
+
+    char buf[value_len];
+    current_file->read(buf,value_len);
+    buf_for_now_value=std::string(buf,value_len);
+
+    current_file->read((char*)(&key_len),sizeof(uint64_t));
+
+    char key_buf[key_len];
+    current_file->read(key_buf,key_len);
+    buf_for_now_key=std::string(key_buf,key_len);
+
+    now_key=Slice(buf_for_now_key);
+    now_value=Slice(buf_for_now_value);
   }
 
   
   DBImpl* db_;
   Iterator* const iter_;
+  Slice now_value;
+  Slice now_key;
+  std::string buf_for_now_key;
+  std::string buf_for_now_value;
+  bool iter_valid=false;
+  std::map<uint64_t,std::vector<uint64_t>> valuelog_map;
+  int memory_usage=0;
+  uint64_t max_memory_usage=config::max_unorder_iter_memory_usage;
+
+  std::string db_name_;
+  std::ifstream* current_file=nullptr;
+
+  bool first_one=false;
+
+  int mode=0;//0=iter, 1=valuelog, 2=invalid
+  std::map<uint64_t,std::vector<uint64_t>>::iterator valuelog_map_iter;
+  int vec_idx=-1;
 };
+
+
+
 void UnorderedIter::Next() {
-  iter_->Next();
+  if(mode==0){
+    if(iter_->Valid())
+    {
+      if(first_one){
+        first_one=false;
+      }
+      else iter_->Next();
+      for(;
+          iter_->Valid()&&memory_usage<max_memory_usage;
+          memory_usage+=2*sizeof(uint64_t),iter_->Next())
+      {
+        if(checkLongValue(iter_->value())){
+          auto pr=GetAndParseValue(iter_->value());
+          valuelog_map[pr.first].push_back(pr.second);
+        }
+        else{
+          now_key=iter_->key();
+          now_value=iter_->value();
+          now_value.remove_prefix(1);
+          return;
+        }
+      }
+    }
+    
+    valuelog_map_iter=valuelog_map.begin();
+    if(valuelog_map_iter!=valuelog_map.end()){
+      std::string file_name_ = ValueLogFileName(db_name_, valuelog_map_iter->first);
+      assert(!current_file);
+      current_file=new std::ifstream(file_name_, std::ios::in | std::ios::binary);
+      vec_idx=0;
+    }
+    
+  }
+
+  mode=1;
+
+  if(valuelog_map_iter==valuelog_map.end()){
+    mode=2;
+    return;
+  }
+
+  int offset=valuelog_map_iter->second[vec_idx++];
+  MyReadValuelog(offset);
+
+  if(vec_idx>=valuelog_map_iter->second.size()){
+    valuelog_map_iter++;
+    
+    if(valuelog_map_iter==valuelog_map.end()){
+      valuelog_map.clear();
+      memory_usage=0;
+      mode=0;
+      if(current_file){
+        current_file->close();
+        delete current_file;
+        current_file=nullptr;
+      }
+    }
+    else{
+      std::string file_name_ = ValueLogFileName(db_name_, valuelog_map_iter->first);
+      if(current_file){
+        current_file->close();
+        delete current_file;
+      }
+      current_file=new std::ifstream(file_name_, std::ios::in | std::ios::binary);
+      vec_idx=0;
+    }
+    
+  }
+
+  
+
 }
 void UnorderedIter::Prev() {
-  iter_->Prev();
+  assert(0);
 }
 
 void UnorderedIter::Seek(const Slice& target) {
-  iter_->Seek(target);
+  assert(0);
 }
 
 void UnorderedIter::SeekToFirst() {
+  first_one=true;
   iter_->SeekToFirst();
+  Next();
   }
 void UnorderedIter::SeekToLast() {
-  iter_->SeekToLast();
+  assert(0);
 }
 
 }  // anonymous namespace
-Iterator* NewUnorderedIterator(DBImpl* db,Iterator* db_iter) {
-  return new UnorderedIter(db,db_iter);
+Iterator* NewUnorderedIter(DBImpl* db,Iterator* db_iter,std::string db_name) {
+  return new UnorderedIter(db,db_iter,db_name);
 }
 }  // namespace leveldb

@@ -62,6 +62,7 @@ class DBImpl : public DB {
              std::string* value) override;
   Iterator* NewIterator(const ReadOptions&) override;
   Iterator* NewOriginalIterator(const ReadOptions&);
+  Iterator* NewUnorderedIterator(const ReadOptions&) override;
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
   bool GetProperty(const Slice& property, std::string* value) override;
@@ -76,6 +77,9 @@ class DBImpl : public DB {
   std::pair<WritableFile*, uint64_t> getNewValuelog();  // use for compaction
   Status ReadValueLog(uint64_t file_id, uint64_t offset,
                       std::string* value) override;
+
+  Status ReadValueLogRange(uint64_t file_id,std::vector<uint64_t> offsets,
+                            std::string* value);
 
   // Extra methods (for testing) that are not in the public DB interface
 

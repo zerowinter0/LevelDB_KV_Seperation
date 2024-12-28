@@ -49,14 +49,14 @@ static const char* FLAGS_benchmarks =
     "fillsync,"
     "fillrandom,"
     "overwrite,"
-    "overwrite,"
-    "overwrite,"
     "readrandom,"
     "readrandom,"  // Extra run to allow previous compactions to quiesce
+    "readunorderseq,"
     "readseq,"
     "readreverse,"
     "compact,"
     "readrandom,"
+    "readunorderseq,"
     "readseq,"
     "readreverse,"
     "fill100K,"
@@ -607,6 +607,8 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == Slice("readseq")) {
         method = &Benchmark::ReadSequential;
+      } else if (name == Slice("readunorderseq")) {
+        method = &Benchmark::ReadUnorderSequential;
       } else if (name == Slice("readreverse")) {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {
@@ -872,6 +874,19 @@ class Benchmark {
     int i = 0;
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
+      bytes += iter->key().size() + iter->value().size();
+      thread->stats.FinishedSingleOp();
+      ++i;
+    }
+    delete iter;
+    thread->stats.AddBytes(bytes);
+  }
+
+  void ReadUnorderSequential(ThreadState* thread) {
+    Iterator* iter = db_->NewUnorderedIterator(ReadOptions());
+    int i = 0;
+    int64_t bytes = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedSingleOp();
       ++i;

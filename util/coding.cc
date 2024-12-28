@@ -249,10 +249,12 @@ bool CompareFieldArray(const FieldArray &a, const FieldArray &b) {
 
 bool CompareKey(const std::vector<std::string> a, std::vector<std::string> b) {
   if (a.size() != b.size()){
+      assert(0);
      return false;
   }
   for (size_t i = 0; i < a.size(); ++i) {
     if (a[i] != b[i]){
+        assert(0);
         return false;
     }
   }
@@ -287,7 +289,7 @@ void DeserializeValue(const std::string& value_str,FieldArray* res){
 }
 
 Status Get_keys_by_field(DB *db,const ReadOptions& options, const Field field,std::vector<std::string> *keys){
-  auto it=db->NewIterator(options);
+  auto it=db->NewUnorderedIterator(options);
   it->SeekToFirst();
   keys->clear();
   while(it->Valid()){

@@ -49,6 +49,8 @@ static const int value_log_size=1<<26;
 //1<<33/1<<26=1<<7
 static const int mem_value_log_number=1<<8;//8GB
 
+static const int max_unorder_iter_memory_usage=32<<20; //32MB
+
 }  // namespace config
 
 class InternalKey;

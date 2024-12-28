@@ -131,6 +131,8 @@ target_sources(leveldb
     "db/db_iter.h"
     "db/prefetch_iter.cc"
     "db/prefetch_iter.h"
+    "db/unordered_iter.cc"
+    "db/unordered_iter.h"
     "db/dbformat.cc"
     "db/dbformat.h"
     "db/dumpfile.cc"

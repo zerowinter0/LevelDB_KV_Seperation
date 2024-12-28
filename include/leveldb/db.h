@@ -133,6 +133,11 @@ class LEVELDB_EXPORT DB {
   // The returned iterator should be deleted before this db is deleted.
   virtual Iterator* NewIterator(const ReadOptions& options) = 0;
 
+  virtual Iterator* NewUnorderedIterator(const ReadOptions&){
+    assert(0);
+    return nullptr;
+  };
+
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
   // state.  The caller must call ReleaseSnapshot(result) when the

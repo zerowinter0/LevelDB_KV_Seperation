@@ -7,6 +7,7 @@
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/prefetch_iter.h"
+#include "db/unordered_iter.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
@@ -1292,6 +1293,11 @@ Iterator *DBImpl::NewOriginalIterator(const ReadOptions& options) {
   return db_iter;
 }
 
+Iterator* DBImpl::NewUnorderedIterator(const ReadOptions& options) {
+  auto iter=NewOriginalIterator(options);
+  return NewUnorderedIter(this,iter,dbname_);
+}
+
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
@@ -2099,7 +2105,9 @@ void DBImpl::InitializeExistingLogs() {
     auto value=db_iter->value();
     if(value.size()&&value[0]==0x01){
       value.remove_prefix(1);
-      uint64_t valuelog_id=*(uint64_t*)value.data();
+      uint64_t valuelog_id;
+      auto res=GetVarint64(&value,&valuelog_id);
+      assert(res);
       assert(valuelog_usage.count(valuelog_id));
       valuelog_usage[valuelog_id]++;
     }

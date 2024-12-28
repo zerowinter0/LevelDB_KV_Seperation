@@ -130,6 +130,8 @@ TEST(Test, CheckSearchKey) {
     std::sort(target_keys.begin(),target_keys.end());
     std::vector<std::string> key_res;
     Get_keys_by_field(db,ReadOptions(),{"name", "special_key"},&key_res);
+    std::sort(key_res.begin(),key_res.end());
+    std::sort(target_keys.begin(),target_keys.end());
     ASSERT_TRUE(CompareKey(key_res, target_keys));
     std::cout<<"get key by field done"<<std::endl;
     for(auto s:keys){

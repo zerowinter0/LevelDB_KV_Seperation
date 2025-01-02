@@ -131,15 +131,17 @@ class ValueLogInserter : public WriteBatch::Handler {
   public:
   WriteBatch writeBatch_;
   DB* db_;
+  int use_valuelog_len_;
   std::vector<std::pair<Slice,Slice>> kvs;
-  ValueLogInserter(DB* db){
+  ValueLogInserter(DB* db,int use_valuelog_len){
     db_=db;
+    use_valuelog_len_=use_valuelog_len;
   }
 
   void Put(const Slice& key, const Slice& value) override {
     Slice new_value;
     std::string buf;
-    if(value.size()<100){
+    if(value.size()<use_valuelog_len_||use_valuelog_len_==-1){
       buf+=(char)(0x00);// should set in key
       buf.append(value.data(),value.size());
       writeBatch_.Put(key,Slice(buf));
@@ -229,8 +231,8 @@ Status WriteBatchInternal::checkValueLog(WriteBatch* b,DB* db_,Slice* lock_key,p
   return Status::OK();
 }
 
-Status WriteBatchInternal::ConverToValueLog(WriteBatch* b,DB* db_){
-  ValueLogInserter inserter(db_);
+Status WriteBatchInternal::ConverToValueLog(WriteBatch* b,DB* db_,int use_valuelog_length){
+  ValueLogInserter inserter(db_,use_valuelog_length);
   auto res=b->Iterate(&inserter);
   inserter.batch_insert();
   *b=inserter.writeBatch_;

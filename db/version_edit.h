@@ -22,7 +22,6 @@ struct FileMetaData {
   int allowed_seeks;  // Seeks allowed until compaction
   uint64_t number;
   uint64_t file_size;    // File size in bytes
-  uint64_t valuelog_id=0;
   InternalKey smallest;  // Smallest internal key served by table
   InternalKey largest;   // Largest internal key served by table
 
@@ -63,13 +62,12 @@ class VersionEdit {
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
   void AddFile(int level, uint64_t file, uint64_t file_size,
-               const InternalKey& smallest, const InternalKey& largest,uint64_t valuelog_id=0) {
+               const InternalKey& smallest, const InternalKey& largest) {
     FileMetaData f;
     f.number = file;
     f.file_size = file_size;
     f.smallest = smallest;
     f.largest = largest;
-    f.valuelog_id=valuelog_id;
     new_files_.push_back(std::make_pair(level, f));
   }
 

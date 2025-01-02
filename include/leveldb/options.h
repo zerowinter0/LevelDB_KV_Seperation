@@ -145,6 +145,17 @@ struct LEVELDB_EXPORT Options {
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.
   const FilterPolicy* filter_policy = nullptr;
+
+
+  //when a value's length>=this value, leveldb will use valuelog to improve performance
+  int use_valuelog_length=1000;//if -1,then don't use valuelog. If env=memEnv, then it must be set to -1.
+
+  // maximum size of value_log file
+  int value_log_size=1<<26;
+  //cache for valuelog(may use lot of memory)
+  int mem_value_log_number=0;//0=don't use valuelog cache
+  //memory usage limit for a single unordered iterator
+  float GC_THRESHOLD=0.6;
 };
 
 // Options that control read operations
@@ -157,6 +168,9 @@ struct LEVELDB_EXPORT ReadOptions {
   // Callers may wish to set this field to false for bulk scans.
   bool fill_cache = true;
 
+  //if true then return the origin value for data:use one byte to show whether the data belong to valuelog
+  //if first byte is 0x00, then the rest of data is true value
+  //else if first byte is 0x01, then the rest of data should use ParseFakeValueForValuelog() to parse its valuelog's id and its offset in valuelog
   bool find_value_log_for_gc = false;
 
   // If "snapshot" is non-null, read as of the supplied snapshot
@@ -164,6 +178,8 @@ struct LEVELDB_EXPORT ReadOptions {
   // not have been released).  If "snapshot" is null, use an implicit
   // snapshot of the state at the beginning of this read operation.
   const Snapshot* snapshot = nullptr;
+
+  int max_unorder_iter_memory_usage=64<<20; //32MB
 };
 
 // Options that control write operations

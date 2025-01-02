@@ -39,7 +39,7 @@ class WriteBatchInternal {
   
   static Status checkValueLog(WriteBatch* batch,DB* db_,Slice* lock_key,port::CondVar* cond_var_);
 
-  static Status ConverToValueLog(WriteBatch* batch,DB* db_);
+  static Status ConverToValueLog(WriteBatch* batch,DB* db_,int use_valuelog_length);
 
   static void Append(WriteBatch* dst, const WriteBatch* src);
 };

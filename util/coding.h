@@ -121,18 +121,11 @@ inline const char* GetVarint32Ptr(const char* p, const char* limit,
   return GetVarint32PtrFallback(p, limit, value);
 }
 
-bool IsValueLogFile(const std::string& filename);
-void ParseStoredValue(const std::string& stored_value, uint64_t& valuelog_id,
+Status ParseFakeValueForValuelog(Slice stored_value, uint64_t& valuelog_id,
                       uint64_t& offset);
-uint64_t GetValueLogID(const std::string& valuelog_name);
+
 void SplitIntoChunks(const std::set<std::string>& files, int num_workers,
                              std::vector<std::vector<std::string>>* chunks);
-
-bool CompareFieldArray(const FieldArray &a, const FieldArray &b);
-bool CompareKey(const std::vector<std::string> a, std::vector<std::string> b);
-std::string SerializeValue(const FieldArray& fields);
-void DeserializeValue(const std::string& value_str,FieldArray* res);
-Status Get_keys_by_field(DB *db,const ReadOptions& options, const Field field,std::vector<std::string> *keys);
 
 
 }  // namespace leveldb

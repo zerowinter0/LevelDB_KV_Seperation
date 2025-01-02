@@ -883,10 +883,10 @@ class Benchmark {
   }
 
   void ReadUnorderSequential(ThreadState* thread) {
-    Iterator* iter = db_->NewUnorderedIterator(ReadOptions());
+    Iterator* iter = db_->NewUnorderedIterator(ReadOptions(),Slice(),Slice());
     int i = 0;
     int64_t bytes = 0;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    for (; iter->Valid(); iter->Next()) {
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedSingleOp();
       ++i;

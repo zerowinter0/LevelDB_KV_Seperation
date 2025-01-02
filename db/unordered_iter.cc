@@ -40,9 +40,18 @@ class UnorderedIter : public Iterator {
   //     just before all entries whose user key == this->key().
   enum IterPos {Left,Mid,Right};
 
-  UnorderedIter(DBImpl* db, Iterator* iter,std::string db_name)
+  UnorderedIter(DBImpl* db, Iterator* iter,std::string db_name,int max_unorder_iter_memory_usage,const Slice &lower_key,const Slice &upper_key,const Comparator* user_comparator)
       : 
-        db_(db),iter_(iter),db_name_(db_name){}
+        db_(db),iter_(iter),db_name_(db_name),max_unorder_iter_memory_usage_(max_unorder_iter_memory_usage),lower_key_(lower_key),upper_key_(upper_key),comparator_(user_comparator){
+          first_one=true;
+          if(lower_key_.empty())iter_->SeekToFirst();
+          else iter_->Seek(lower_key);
+          if(!iter_->Valid()){
+            mode=2;
+            return;
+          }
+          Next();
+        }
 
   UnorderedIter(const UnorderedIter&) = delete;
   UnorderedIter& operator=(const UnorderedIter&) = delete;
@@ -114,6 +123,12 @@ class UnorderedIter : public Iterator {
     now_key=Slice(buf_for_now_key,key_len);
   }
 
+  bool keyGreaterThanRequire(){
+    if(!iter_->Valid())return true;
+    else if(upper_key_.empty())return false;
+    else return(comparator_->Compare(iter_->key(),upper_key_)>=0);
+  }
+
   
   DBImpl* db_;
   Iterator* const iter_;
@@ -126,7 +141,6 @@ class UnorderedIter : public Iterator {
   bool iter_valid=false;
   std::map<uint64_t,std::vector<uint64_t>> valuelog_map;
   int memory_usage=0;
-  uint64_t max_memory_usage=config::max_unorder_iter_memory_usage;
 
   std::string db_name_;
   std::ifstream* current_file=nullptr;
@@ -136,20 +150,26 @@ class UnorderedIter : public Iterator {
   int mode=0;//0=iter, 1=valuelog, 2=invalid
   std::map<uint64_t,std::vector<uint64_t>>::iterator valuelog_map_iter;
   int vec_idx=-1;
+  int max_unorder_iter_memory_usage_;
+
+  const Slice lower_key_;
+  const Slice upper_key_;
+
+  const Comparator* comparator_;
 };
 
 
 
 void UnorderedIter::Next() {
   if(mode==0){
-    if(iter_->Valid())
+    if(iter_->Valid()&&!keyGreaterThanRequire())
     {
       if(first_one){
         first_one=false;
       }
       else iter_->Next();
       for(;
-          iter_->Valid()&&memory_usage<max_memory_usage;
+          iter_->Valid()&&memory_usage<max_unorder_iter_memory_usage_&&!keyGreaterThanRequire();
           memory_usage+=2*sizeof(uint64_t),iter_->Next())
       {
         if(checkLongValue(iter_->value())){
@@ -227,16 +247,14 @@ void UnorderedIter::Seek(const Slice& target) {
 }
 
 void UnorderedIter::SeekToFirst() {
-  first_one=true;
-  iter_->SeekToFirst();
-  Next();
+  assert(0);
   }
 void UnorderedIter::SeekToLast() {
   assert(0);
 }
 
 }  // anonymous namespace
-Iterator* NewUnorderedIter(DBImpl* db,Iterator* db_iter,std::string db_name) {
-  return new UnorderedIter(db,db_iter,db_name);
+Iterator* NewUnorderedIter(DBImpl* db,Iterator* db_iter,std::string db_name,int max_unorder_iter_memory_usage,const Slice &lower_key,const Slice &upper_key,const Comparator* user_comparator) {
+  return new UnorderedIter(db,db_iter,db_name,max_unorder_iter_memory_usage,lower_key,upper_key,user_comparator);
 }
 }  // namespace leveldb

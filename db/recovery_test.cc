@@ -283,9 +283,11 @@ TEST_F(RecoveryTest, MultipleLogFiles) {
 
   // Make a bunch of uncompacted log files.
   uint64_t old_log = FirstLogFile();
-  MakeLogFile(old_log + 1, 1000, "hello", "world");
-  MakeLogFile(old_log + 2, 1001, "hi", "there");
-  MakeLogFile(old_log + 3, 1002, "foo", "bar2");
+  std::string prefix;
+  prefix+=(char)0x00;
+  MakeLogFile(old_log + 1, 1000, "hello", prefix+"world");
+  MakeLogFile(old_log + 2, 1001, "hi", prefix+"there");
+  MakeLogFile(old_log + 3, 1002, "foo", prefix+"bar2");
 
   // Recover and check that all log files were processed.
   Open();
@@ -310,7 +312,7 @@ TEST_F(RecoveryTest, MultipleLogFiles) {
 
   // Check that introducing an older log file does not cause it to be re-read.
   Close();
-  MakeLogFile(old_log + 1, 2000, "hello", "stale write");
+  MakeLogFile(old_log + 1, 2000, "hello", prefix+"stale write");
   Open();
   ASSERT_LE(1, NumTables());
   ASSERT_EQ(1, NumLogs());

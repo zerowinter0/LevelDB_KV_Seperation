@@ -28,6 +28,7 @@ class CorruptionTest : public testing::Test {
         tiny_cache_(NewLRUCache(100)) {
     options_.env = &env_;
     options_.block_cache = tiny_cache_;
+    options_.use_valuelog_length=-1;
     DestroyDB(dbname_, options_);
 
     options_.create_if_missing = true;

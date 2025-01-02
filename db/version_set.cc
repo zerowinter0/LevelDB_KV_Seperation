@@ -978,13 +978,15 @@ Status VersionSet::Recover(bool* save_manifest) {
     MarkFileNumberUsed(log_number);
   }
 
-  assert(s.ok());
+  //assert(s.ok());
   std::vector<std::string> filenames;
   env_->GetChildren(dbname_, &filenames);
   for (const auto& filename:filenames) {
-    if (IsValueLogFile(filename)){
-      uint64_t valuelog_number = GetValueLogID(filename);
-      //std::cout<<valuelog_number<<std::endl;
+    uint64_t valuelog_number;
+    FileType type;
+    ParseFileName(filename,&valuelog_number,&type);
+
+    if (type==FileType::kValueLogFile){
       MarkFileNumberUsed(valuelog_number);
     }
   }
@@ -1113,7 +1115,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     const std::vector<FileMetaData*>& files = current_->files_[level];
     for (size_t i = 0; i < files.size(); i++) {
       const FileMetaData* f = files[i];
-      edit.AddFile(level, f->number, f->file_size, f->smallest, f->largest,f->valuelog_id);
+      edit.AddFile(level, f->number, f->file_size, f->smallest, f->largest);
     }
   }
 

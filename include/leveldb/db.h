@@ -124,6 +124,11 @@ class LEVELDB_EXPORT DB {
     return Status::Corruption("not imp");
   }
 
+  virtual Status parseTrueValue(Slice* value,std::string* true_value){
+    assert(0);
+    return Status::Corruption("not imp");
+  }
+
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
@@ -133,7 +138,7 @@ class LEVELDB_EXPORT DB {
   // The returned iterator should be deleted before this db is deleted.
   virtual Iterator* NewIterator(const ReadOptions& options) = 0;
 
-  virtual Iterator* NewUnorderedIterator(const ReadOptions&){
+  virtual Iterator* NewUnorderedIterator(const ReadOptions&,const Slice &lower_key,const Slice &upper_key){
     assert(0);
     return nullptr;
   };
@@ -189,6 +194,8 @@ class LEVELDB_EXPORT DB {
   //    db->CompactRange(nullptr, nullptr);
   virtual void CompactRange(const Slice* begin, const Slice* end) = 0;
   virtual void TEST_GarbageCollect(){};
+
+  
 
 };
 

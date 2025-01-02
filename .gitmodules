@@ -6,4 +6,4 @@
 	url = https://github.com/google/benchmark
 [submodule "YCSB-cpp"]
 	path = YCSB-cpp
-	url = https://github.com/ls4154/YCSB-cpp.git
+	url = https://github.com/zerowinter0/my_YCSB_benchmark.git

@@ -15,7 +15,7 @@ namespace leveldb {
 class DBImpl;
 
 // add a prefetch function for db_iter
-Iterator* NewUnorderedIter(DBImpl* db,Iterator* db_iter,std::string db_name);
+Iterator* NewUnorderedIter(DBImpl* db,Iterator* db_iter,std::string db_name,int max_unorder_iter_memory_usage,const Slice &lower_key,const Slice &upper_key,const Comparator* comparator);
 
 }  // namespace leveldb
 

@@ -340,7 +340,9 @@ class DBTest : public testing::Test {
       opts = CurrentOptions();
       opts.create_if_missing = true;
     }
+    opts.use_valuelog_length=-1;
     last_options_ = opts;
+    
 
     return DB::Open(opts, dbname_, &db_);
   }
@@ -413,9 +415,13 @@ class DBTest : public testing::Test {
             result += ", ";
           }
           first = false;
+          std::string res;
+          Slice true_val;
           switch (ikey.type) {
             case kTypeValue:
-              result += iter->value().ToString();
+              true_val=iter->value();
+              dbfull()->parseTrueValue(&true_val,&res);
+              result += res;
               break;
             case kTypeDeletion:
               result += "DEL";
@@ -1107,6 +1113,7 @@ TEST_F(DBTest, MinorCompactionsHappen) {
 TEST_F(DBTest, RecoverWithLargeLog) {
   {
     Options options = CurrentOptions();
+    options.use_valuelog_length=-1;
     Reopen(&options);
     ASSERT_LEVELDB_OK(Put("big1", std::string(200000, '1')));
     ASSERT_LEVELDB_OK(Put("big2", std::string(200000, '2')));
@@ -1118,6 +1125,7 @@ TEST_F(DBTest, RecoverWithLargeLog) {
   // Make sure that if we re-open with a small write buffer size that
   // we flush table files in the middle of a large log file.
   Options options = CurrentOptions();
+  options.use_valuelog_length=-1;
   options.write_buffer_size = 100000;
   Reopen(&options);
   ASSERT_EQ(NumTableFilesAtLevel(0), 3);

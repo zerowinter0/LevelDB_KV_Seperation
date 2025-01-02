@@ -129,8 +129,9 @@ target_sources(leveldb
     "db/db_impl.h"
     "db/db_iter.cc"
     "db/db_iter.h"
-    "db/prefetch_iter.cc"
-    "db/prefetch_iter.h"
+    "db/true_iter.cc"
+    "db/true_iter.h"
+    "db/fields.cc"
     "db/unordered_iter.cc"
     "db/unordered_iter.h"
     "db/dbformat.cc"
@@ -213,6 +214,7 @@ target_sources(leveldb
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/table_builder.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/table.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
+    "${LEVELDB_PUBLIC_INCLUDE_DIR}/fields.h"
 )
 
 if (WIN32)
@@ -497,6 +499,7 @@ if(LEVELDB_INSTALL)
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/table_builder.h"
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/table.h"
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
+      "${LEVELDB_PUBLIC_INCLUDE_DIR}/fields.h"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/leveldb"
   )
 

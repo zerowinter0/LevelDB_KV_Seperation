@@ -44,12 +44,8 @@ static const int kMaxMemCompactLevel = 2;
 // Approximate gap in bytes between samples of data read during iteration.
 static const int kReadBytesPeriod = 1048576;
 
-// maximum size of value_log file
-static const int value_log_size=1<<26;
-//1<<33/1<<26=1<<7
-static const int mem_value_log_number=0;//8GB
 
-static const int max_unorder_iter_memory_usage=64<<20; //32MB
+static const float GC_THRESHOLD=0.6;
 
 }  // namespace config
 

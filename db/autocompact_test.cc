@@ -19,6 +19,7 @@ class AutoCompactTest : public testing::Test {
     DestroyDB(dbname_, options_);
     options_.create_if_missing = true;
     options_.compression = kNoCompression;
+    options_.use_valuelog_length=-1;
     EXPECT_LEVELDB_OK(DB::Open(options_, dbname_, &db_));
   }
 
@@ -50,7 +51,7 @@ class AutoCompactTest : public testing::Test {
   DB* db_;
 };
 
-static const int kValueSize = 200 * 1024;
+static const int kValueSize = 200*1024;
 static const int kTotalSize = 100 * 1024 * 1024;
 static const int kCount = kTotalSize / kValueSize;
 

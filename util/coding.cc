@@ -158,21 +158,6 @@ bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
     return false;
   }
 }
-
-/**
- * @brief 判断文件是否是 valuelog 文件
- * 
- * @param filename 文件名（包含路径或纯文件名）
- * @return true 如果是 valuelog 文件
- * @return false 如果不是 valuelog 文件
- */
-bool IsValueLogFile(const std::string& filename) {
-  // 检查文件是否以 ".valuelog" 结尾
-  const std::string suffix = ".valuelog";
-  return filename.size() > suffix.size() &&
-         filename.substr(filename.size() - suffix.size()) == suffix;
-}
-
 /**
  * @brief 解析存储值，提取 valuelog_id 和 offset 信息
  * 
@@ -180,51 +165,13 @@ bool IsValueLogFile(const std::string& filename) {
  * @param valuelog_id 输出的 ValueLog 文件 ID
  * @param offset 输出的记录偏移量
  */
-void ParseStoredValue(const std::string& stored_value, uint64_t& valuelog_id,
+Status ParseFakeValueForValuelog(Slice stored_value, uint64_t& valuelog_id,
                       uint64_t& offset) {
   // 假设 stored_value 格式为：valuelog_id|offset
   Slice tmp(stored_value.data(), stored_value.size());
-  GetVarint64(&tmp, &valuelog_id);
-  GetVarint64(&tmp, &offset);
-}
-
-/**
- * @brief 根据文件名提取 ValueLog 文件的 ID
- * 
- * @param valuelog_name 文件名（例如 "123.valuelog"）
- * @return uint64_t 提取的 ValueLog 文件 ID
- */
-uint64_t GetValueLogID(const std::string& valuelog_name) {
-
-    // 获取文件名部分（假设文件名格式为 "number.extension"）
-    size_t pos = valuelog_name.find_last_of('/');
-    std::string filename;
-    if (pos != std::string::npos) {
-        filename = valuelog_name.substr(pos + 1);
-    } else {
-        filename = valuelog_name;
-    }
-
-    // 查找文件名中的 '.' 位置，提取数字部分
-    pos = filename.find('.');
-    assert(pos != std::string::npos);
-
-    // 提取数字部分
-    std::string id_str = filename.substr(0, pos);
-
-    // 检查文件扩展名是否为 .valuelog
-    if (filename.substr(pos + 1) != "valuelog") {
-        assert(0);
-    }
-
-    // 转换为 uint64_t
-    uint64_t id;
-    std::istringstream iss(id_str);
-    if (!(iss >> id)) {
-        assert(0);
-    }
-
-    return id;
+  if(!GetVarint64(&tmp, &valuelog_id))return Status::NotSupported("can't decode a valuelog value from its meta info");
+  if(!GetVarint64(&tmp, &offset))return Status::NotSupported("can't decode a valuelog value from its meta info");
+  return Status::OK();
 }
 
 // Helper function to split the set of files into chunks
@@ -236,78 +183,6 @@ void SplitIntoChunks(const std::set<std::string>& files, int num_workers,
     (*chunks)[index % num_workers].push_back(file);
     ++index;
   }
-}
-
-
-bool CompareFieldArray(const FieldArray &a, const FieldArray &b) {
-  if (a.size() != b.size()) return false;
-  for (size_t i = 0; i < a.size(); ++i) {
-    if (a[i].first != b[i].first || a[i].second != b[i].second) return false;
-  }
-  return true;
-}
-
-bool CompareKey(const std::vector<std::string> a, std::vector<std::string> b) {
-  if (a.size() != b.size()){
-      assert(0);
-     return false;
-  }
-  for (size_t i = 0; i < a.size(); ++i) {
-    if (a[i] != b[i]){
-        assert(0);
-        return false;
-    }
-  }
-  return true;
-}
-
-std::string SerializeValue(const FieldArray& fields){
-  std::string res_="";
-  PutVarint64(&res_,(uint64_t)fields.size());
-  for(auto pr:fields){
-    PutLengthPrefixedSlice(&res_, pr.first);
-    PutLengthPrefixedSlice(&res_, pr.second);
-  }
-  return res_;
-}
-
-void DeserializeValue(const std::string& value_str,FieldArray* res){
-  Slice slice=Slice(value_str.c_str());
-  uint64_t siz;
-  bool tmpres=GetVarint64(&slice,&siz);
-  assert(tmpres);
-  res->clear();
-  for(int i=0;i<siz;i++){
-    Slice value_name;
-    Slice value;
-    tmpres=GetLengthPrefixedSlice(&slice,&value_name);
-    assert(tmpres);
-    tmpres=GetLengthPrefixedSlice(&slice,&value);
-    assert(tmpres);
-    res->emplace_back(value_name,value);
-  }
-}
-
-Status Get_keys_by_field(DB *db,const ReadOptions& options, const Field field,std::vector<std::string> *keys){
-  auto it=db->NewUnorderedIterator(options);
-  it->SeekToFirst();
-  keys->clear();
-  while(it->Valid()){
-    auto val=it->value();
-    FieldArray arr;
-    auto str_val=std::string(val.data(),val.size());
-    DeserializeValue(str_val,&arr);
-    for(auto pr:arr){
-      if(pr.first==field.first&&pr.second==field.second){
-        Slice key=it->key();
-        keys->push_back(std::string(key.data(),key.size()));
-        break;
-      }
-    }
-    it->Next();
-  }
-  delete it;
-  return Status::OK();
 }
 
 

@@ -6,7 +6,7 @@
 
 #include "db/builder.h"
 #include "db/db_iter.h"
-#include "db/prefetch_iter.h"
+#include "db/true_iter.h"
 #include "db/unordered_iter.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
@@ -155,9 +155,12 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       background_compaction_scheduled_(false),
       background_garbage_collect_scheduled_(false),
       manual_compaction_(nullptr),
-      valuelog_cache(NewLRUCache(config::mem_value_log_number)),
+      mem_value_log_number_(raw_options.mem_value_log_number),
+      valuelog_cache(NewLRUCache(raw_options.mem_value_log_number)),
       versions_(new VersionSet(dbname_, &options_, table_cache_,
-                               &internal_comparator_)) {
+                               &internal_comparator_)),
+      use_valuelog_length(raw_options.use_valuelog_length),
+      value_log_size_(raw_options.value_log_size){
       }
       
 
@@ -283,6 +286,7 @@ void DBImpl::RemoveObsoleteFiles() {
           // be recorded in pending_outputs_, which is inserted into "live"
           keep = (live.find(number) != live.end());
           break;
+        case kValueLogFile:
         case kCurrentFile:
         case kDBLockFile:
         case kInfoLogFile:
@@ -1052,8 +1056,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
             // Value is >= 100 bytes, read from external file
             uint64_t file_id, valuelog_offset;
             value.remove_prefix(1);
-            bool res = GetVarint64(&value, &file_id);
-            if (!res) return Status::Corruption("can't decode file id");
+            
+            status=ParseFakeValueForValuelog(value,file_id,valuelog_offset);
+            if(!status.ok())break;
+
             valuelog_usage[file_id]--;
           }
         }
@@ -1197,7 +1203,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
 Iterator* DBImpl::TEST_NewInternalIterator() {
   SequenceNumber ignored;
   uint32_t ignored_seed;
-  return NewIterator(ReadOptions());
+  return NewInternalIterator(ReadOptions(), &ignored, &ignored_seed);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
@@ -1253,24 +1259,10 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   if (options.find_value_log_for_gc) {
     return s;
   }
-
-  if (value->c_str()[0] == 0x00) {
-    *value = value->substr(1);
-    return s;
-  }
-  Slice value_log_slice = Slice(value->c_str() + 1, value->length());
-  uint64_t file_id, valuelog_offset;
-  bool res = GetVarint64(&value_log_slice, &file_id);
-  if (!res) return Status::Corruption("can't decode file id");
-  res = GetVarint64(&value_log_slice, &valuelog_offset);
-  if (!res) return Status::Corruption("can't decode valuelog offset");
-  
-  {
-    mutex_.Unlock();
-    s = ReadValueLog(file_id, valuelog_offset, value);
-    mutex_.Lock();
-  }
-  
+  Slice value_log_slice = Slice(value->c_str(), value->length());
+  mutex_.Unlock();
+  s=parseTrueValue(&value_log_slice,value);
+  mutex_.Lock();
   return s;
 }
 
@@ -1293,9 +1285,9 @@ Iterator *DBImpl::NewOriginalIterator(const ReadOptions& options) {
   return db_iter;
 }
 
-Iterator* DBImpl::NewUnorderedIterator(const ReadOptions& options) {
+Iterator* DBImpl::NewUnorderedIterator(const ReadOptions& options,const Slice &lower_key,const Slice &upper_key) {
   auto iter=NewOriginalIterator(options);
-  return NewUnorderedIter(this,iter,dbname_);
+  return NewUnorderedIter(this,iter,dbname_,options.max_unorder_iter_memory_usage,lower_key,upper_key,user_comparator());
 }
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
@@ -1305,27 +1297,16 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
 
   mutex_.Lock();
 
-  Iterator* iter_prefetch = NewInternalIterator(options, &latest_snapshot, &seed);
-  auto db_iter_prefetch=NewDBIterator(this, user_comparator(), iter_prefetch,
-                      (options.snapshot != nullptr
-                            ? static_cast<const SnapshotImpl*>(options.snapshot)
-                                  ->sequence_number()
-                            : latest_snapshot),
-                      seed);
-
-  SequenceNumber useless_snapshot;
-
-  Iterator* iter = NewInternalIterator(options, &useless_snapshot, &seed);
+  Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
   auto db_iter=NewDBIterator(this, user_comparator(), iter,
                       (options.snapshot != nullptr
                             ? static_cast<const SnapshotImpl*>(options.snapshot)
                                   ->sequence_number()
                             : latest_snapshot),
                       seed);
-  
   mutex_.Unlock();
 
-  return NewPreFetchIterator(this,db_iter,db_iter_prefetch,iter_num);
+  return NewTrueIterator(this,db_iter);
 }
 
 void DBImpl::RecordReadSample(Slice key) {
@@ -1379,7 +1360,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
-    WriteBatchInternal::ConverToValueLog(write_batch, this);//need lock! to protect valuelog_number
+    WriteBatchInternal::ConverToValueLog(write_batch, this,use_valuelog_length);//need lock! to protect valuelog_number
     WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
     last_sequence += WriteBatchInternal::Count(write_batch);
     
@@ -1644,42 +1625,28 @@ void DBImpl::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
 
 std::vector<std::pair<uint64_t, uint64_t>> DBImpl::WriteValueLog(
     std::vector<std::pair<Slice, Slice>> kv) {
+
+  if(valuelogfile_number_==0){
+    addNewValueLog();
+  }
+
   std::string file_name_ = ValueLogFileName(dbname_, valuelogfile_number_);
   std::fstream valueFile(file_name_, std::ios::in | std::ios::out | std::ios::binary);
-  if (!valueFile.is_open()) {
-    assert(0);
-  }
+  assert(valueFile.is_open());
   valueFile.seekg(0, std::ios::end); // 移动到文件末尾
   uint64_t init_offset = valueFile.tellg();
 
   // 如果超出fixed_size
-  if(init_offset>=config::value_log_size){
-    uint64_t file_data_size = 0; // 文件数据大小标志位
-    valueFile.seekg(0, std::ios::beg);
-    valueFile.read(reinterpret_cast<char*>(&file_data_size), sizeof(uint64_t));
-    valuelog_usage[valuelogfile_number_]=file_data_size;
-    valuelog_origin[valuelogfile_number_]=file_data_size;
+  if(init_offset>=value_log_size_){
     addNewValueLog();
     valueFile.close();
     file_name_ = ValueLogFileName(dbname_, valuelogfile_number_);
     valueFile =std::fstream(file_name_, std::ios::in | std::ios::out | std::ios::binary);
     valueFile.seekg(0, std::ios::end); // 移动到文件末尾
-    init_offset = valueFile.tellg();
+    init_offset = 0;
+    valuelog_usage[valuelogfile_number_]=0;
+    valuelog_origin[valuelogfile_number_]=0;
   }
-
-  uint64_t file_data_size = 0; // 文件数据大小标志位
-  valueFile.seekg(0, std::ios::beg);
-  valueFile.read(reinterpret_cast<char*>(&file_data_size), sizeof(uint64_t));
-  valueFile.clear(); // 清除错误状态
-
-  //update length first
-  file_data_size+=kv.size();
-  valueFile.seekp(0, std::ios::beg); // 移动到文件开头
-  valueFile.write(reinterpret_cast<const char*>(&file_data_size), sizeof(uint64_t));
-  assert(valueFile.good());
-  
-  valueFile.seekp(0, std::ios::end); // 返回文件末尾准备写入
-  // std::cout<<"file_data_size: "<<file_data_size<<std::endl;
 
   std::vector<std::pair<uint64_t, uint64_t>> res;
 
@@ -1689,7 +1656,7 @@ std::vector<std::pair<uint64_t, uint64_t>> DBImpl::WriteValueLog(
     total_size+=pr.first.size()+pr.second.size();
   }
 
-  char buf[total_size];
+  char* buf= new char[total_size];//write all data with one fstream.write using this buf
 
   uint64_t offset=0;
   for (const auto& pr:kv) {
@@ -1726,38 +1693,44 @@ std::vector<std::pair<uint64_t, uint64_t>> DBImpl::WriteValueLog(
   // 解锁资源或进行其他清理操作
   //valueFile.flush(); // 确保所有缓冲区的数据都被写入文件
   valueFile.close();
+  valuelog_usage[valuelogfile_number_]+=res.size();
+  valuelog_origin[valuelogfile_number_]+=res.size();
+  delete buf;
   return res;
 }
 
 
 void DBImpl::addNewValueLog() {
+  mutex_.AssertHeld();
   valuelogfile_number_ = versions_->NewFileNumber();
 
   std::string file_name_ = ValueLogFileName(dbname_, valuelogfile_number_);
   std::fstream valueFile(file_name_, std::ios::app | std::ios::binary);
-  if (!valueFile.is_open()) {
-    assert(0);
-  }
-  uint64_t file_data_size = 0; // 新增的文件数据大小标志位
-  if (valueFile.tellp() != 0) {
-    assert(0);
-  }
-  else{
-    valueFile.write(reinterpret_cast<const char*>(&file_data_size), sizeof(uint64_t));
-    if (!valueFile.good()) {
-      valueFile.close();
-      assert(0);
-    }
-    else{
-      // 正常关闭文件
-      valueFile.flush(); // 确保所有缓冲区的数据都被写入文件
-      valueFile.close();
-    }
-  }
+  assert(valueFile.is_open());
+  valueFile.close();
 }
 
 static void valuelog_cache_deleter(const leveldb::Slice &key, void *value){
   delete (RandomAccessFile*)value;
+}
+
+Status DBImpl::parseTrueValue(Slice* value,std::string *true_value){
+  if(value->empty()){
+    *true_value="";
+  }
+  else if(value->data()[0]==0x00){
+    value->remove_prefix(1);
+    std::string new_str=std::string(value->data(),value->size());
+    *true_value=std::move(new_str);
+  }
+  else{
+    uint64_t value_id,value_offset;
+    value->remove_prefix(1);
+    Status s=ParseFakeValueForValuelog(*value,value_id,value_offset);
+    if(!s.ok())return s;
+    return ReadValueLog(value_id,value_offset,true_value);
+  }
+  return Status::OK();
 }
 
 Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
@@ -1766,18 +1739,19 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
   std::string file_name_ = ValueLogFileName(dbname_, file_id);
 
   mutex_.Lock();
-  if(file_id==valuelogfile_number_||config::mem_value_log_number==0){
+  if(file_id==valuelogfile_number_||mem_value_log_number_==0){
     mutex_.Unlock();
     
     std::ifstream inFile(file_name_, std::ios::in | std::ios::binary);
-    uint64_t value_len;
+    uint64_t value_len=0;
     inFile.seekg(offset);
     inFile.read((char*)(&value_len),sizeof(uint64_t));
 
-    char buf[value_len];
+    char* buf=new char[value_len];
     inFile.read(buf,value_len);
     inFile.close();
     *value=std::string(buf,value_len);
+    delete buf;
     return Status::OK();
   }
   
@@ -1819,54 +1793,38 @@ void DBImpl::GarbageCollect() {
   Status s = env_->GetChildren(dbname_, &filenames);
   Log(options_.info_log, "start gc ");
   assert(s.ok());
-  std::set<std::string> valuelog_set;
-  for (const auto& filename:filenames) {
-    if (IsValueLogFile(filename)){
-      uint64_t cur_log_number = GetValueLogID(filename);
-      if (cur_log_number == valuelogfile_number_) {
-        continue;
-      }
-      auto tmp_name = ValueLogFileName(dbname_, cur_log_number);
-      if (!versions_->checkOldValueLog(tmp_name) &&
-          valuelog_origin[cur_log_number]) {
-            //std::cout<<((float)valuelog_usage[cur_log_number]) /(float)valuelog_origin[cur_log_number]<<std::endl;
-        if (((float)valuelog_usage[cur_log_number]) /
-                    (float)valuelog_origin[cur_log_number] <= 0.6) {
-          valuelog_set.emplace(filename);
-        }
-      }
+  std::vector<uint64_t> gc_valuelog_id_vector;
+
+  mutex_.Lock();// for visit valuelog_origin/usage
+  for(const auto&pr:valuelog_origin){
+    if(
+      ((float)valuelog_usage[pr.first])/pr.second<config::GC_THRESHOLD
+    ){
+      gc_valuelog_id_vector.push_back(pr.first);
     }
   }
-  // std::cout << "valuelog_set size: " << valuelog_set.size() << std::endl;
-  Log(options_.info_log, "valuelog_set size: %d", valuelog_set.size());
 
-  //bool tmp_judge=false;//only clean one file
-  for (std::string valuelog_name : valuelog_set) {
-    Log(options_.info_log, ("gc processing: "+valuelog_name).data());
-    uint64_t cur_log_number = GetValueLogID(valuelog_name);
-    valuelog_name = ValueLogFileName(dbname_, cur_log_number);
+  for(const auto&id:gc_valuelog_id_vector){
+    valuelog_origin.erase(id);
+    valuelog_usage.erase(id);
+  }
+  mutex_.Unlock();
+
+  for (uint64_t cur_log_number : gc_valuelog_id_vector) {
+    std::string valuelog_name = ValueLogFileName(dbname_, cur_log_number);
+    Log(options_.info_log, "gc processing: %s",valuelog_name.c_str());
     if (cur_log_number == valuelogfile_number_) {
       continue;
     }
 
-    // 初始化offset为占用大小
-    uint64_t current_offset = sizeof(uint64_t);
+    uint64_t current_offset = 0;
     uint64_t tmp_offset = current_offset;
 
-    int cnt = 0;
-
-    // Open the file in binary mode for reading
     std::ifstream cur_valuelog(valuelog_name, std::ios::in | std::ios::binary);
-    if (!cur_valuelog.is_open()) {
-      std::cerr << "Failed to open file: " << valuelog_name
-                << " for reading cur_valuelog!" << std::endl;
-      continue;
-    }
+    assert(cur_valuelog.is_open());
 
     while (true) {
       tmp_offset = current_offset;
-      ++cnt;
-      // std::cout << cnt <<"   "<<current_offset<< std::endl;
 
       // 读取一个 kv 对
       uint64_t key_len, val_len;
@@ -1881,10 +1839,7 @@ void DBImpl::GarbageCollect() {
       if (cur_valuelog.eof()) {
         break;  // 正常退出条件：到达文件末尾
       }
-
-      if (!cur_valuelog.good()) {
-        assert(0);
-      }
+      assert(cur_valuelog.good());
 
       current_offset += sizeof(uint64_t);
 
@@ -1901,7 +1856,6 @@ void DBImpl::GarbageCollect() {
       cur_valuelog.read(key_buf, key_len);
       assert(cur_valuelog.good());
       current_offset += key_len;
-      // std::cout << cnt <<"   "<<current_offset<< std::endl;
 
       // Assign the read key data to the Slice
       key = Slice(key_buf, key_len);
@@ -1930,8 +1884,16 @@ void DBImpl::GarbageCollect() {
         // Key 不存在，忽略此记录
         continue;
       }
+      else if(!status.ok()){//handle error:skip this valuelog
+
+        mutex_.Lock();
+        valuelog_finding_key=Slice();
+        lock_valuelog_key_mutex_cond_.SignalAll();
+        mutex_.Unlock();
+
+        break;
+      }
       else{
-          assert(status.ok());
           if(stored_value.data()[0]==(char)(0x00)){
             //value is too small
             continue;
@@ -1940,9 +1902,20 @@ void DBImpl::GarbageCollect() {
 
       // 检查 valuelog_id 和 offset 是否匹配
       uint64_t stored_valuelog_id, stored_offset;
-      ParseStoredValue(stored_value.substr(1), stored_valuelog_id,
+      status=ParseFakeValueForValuelog(stored_value.substr(1), stored_valuelog_id,
                        stored_offset);
-      if (stored_valuelog_id != GetValueLogID(valuelog_name) ||
+      
+      if(!status.ok()){//handle error:skip this valuelog
+
+        mutex_.Lock();
+        valuelog_finding_key=Slice();
+        lock_valuelog_key_mutex_cond_.SignalAll();
+        mutex_.Unlock();
+
+        break;
+      }
+
+      if (stored_valuelog_id != cur_log_number ||
           stored_offset != tmp_offset) {
         // 记录无效，跳过
         continue;
@@ -2034,7 +2007,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     impl->RemoveObsoleteFiles();
     impl->MaybeScheduleCompaction();
     impl->InitializeExistingLogs();
-    impl->addNewValueLog();
+    //impl->addNewValueLog();
   }
   impl->mutex_.Unlock();
   if (s.ok()) {
@@ -2071,12 +2044,6 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
           result = del;
         }
       }
-      else if(IsValueLogFile(filenames[i])){
-        Status del = env->RemoveFile(dbname + "/" + filenames[i]);
-        if (result.ok() && !del.ok()) {
-          result = del;
-        }
-      }
     }
     env->UnlockFile(lock);  // Ignore error since state is already gone
     env->RemoveFile(lockname);
@@ -2085,57 +2052,115 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
   return result;
 }
 
-// 读取所有现有日志文件的 file_data_size
+// recover for valuelog
 void DBImpl::InitializeExistingLogs() {
   std::vector<std::string> filenames;
   Status s = env_->GetChildren(dbname_, &filenames);
-  Log(options_.info_log, "start set file map ");
+  Log(options_.info_log, "start recover for valuelog");
   assert(s.ok());
-  std::set<std::string> valuelog_set;
+  std::set<uint64_t> all_valuelog_ids;
+  std::set<uint64_t> live_valuelog_ids;
+  uint64_t latest_valuelog_id=0;
+  uint64_t latest_valuelog_offset=0;
   for (const auto& filename : filenames) {
-    if (IsValueLogFile(filename)) {
-      uint64_t cur_log_number = GetValueLogID(filename);
-      uint64_t file_data_size = ReadFileSize(cur_log_number);
-      valuelog_origin[cur_log_number]=file_data_size;
-      valuelog_usage[cur_log_number]=0;
-    }
+    uint64_t valuelog_number;
+    FileType type;
+    ParseFileName(filename,&valuelog_number,&type);
+    if(type==FileType::kValueLogFile)all_valuelog_ids.emplace(valuelog_number);
   }
+
   mutex_.Unlock();
   auto db_iter=NewOriginalIterator(ReadOptions());
   for(db_iter->SeekToFirst();db_iter->Valid();db_iter->Next()){
     auto value=db_iter->value();
     if(value.size()&&value[0]==0x01){
       value.remove_prefix(1);
-      uint64_t valuelog_id;
-      auto res=GetVarint64(&value,&valuelog_id);
-      assert(res);
-      assert(valuelog_usage.count(valuelog_id));
+      uint64_t valuelog_id,valuelog_offset;
+
+      Status status=ParseFakeValueForValuelog(value,valuelog_id,valuelog_offset);
+      if(!status.ok()){//handle error:skip this value, correct?
+        continue;
+      }
+
       valuelog_usage[valuelog_id]++;
+      if(valuelog_id>=latest_valuelog_id){
+
+        if(valuelog_id==latest_valuelog_id){
+          latest_valuelog_offset=std::max(latest_valuelog_offset,valuelog_offset);
+        }
+        else{
+          latest_valuelog_id=valuelog_id;
+          latest_valuelog_offset=valuelog_offset;
+        }
+      }
     }
   }
   delete db_iter;
   mutex_.Lock();
-}
-
-// 读取单个文件的 file_data_size
-uint64_t DBImpl::ReadFileSize(uint64_t log_number) {
-  auto file_name = ValueLogFileName(dbname_, log_number);
-  std::ifstream valueFile(file_name, std::ios::in | std::ios::binary);
-  if (!valueFile.is_open()) {
-    std::cerr << "Failed to open file: " << file_name << std::endl;
-    return 0;
+  for(const auto& pr:valuelog_usage){
+    live_valuelog_ids.emplace(pr.first);
   }
 
-  uint64_t file_data_size = 0;
-  valueFile.read(reinterpret_cast<char*>(&file_data_size), sizeof(uint64_t));
-  if (valueFile.fail() || valueFile.bad()) {
-    std::cerr << "Failed to read data size from file: " << file_name
-              << std::endl;
-    valueFile.close();
-    return 0;
+  for(const auto &id:all_valuelog_ids){
+    if(!live_valuelog_ids.count(id)){
+      //useless valuelog, delete directly
+      auto valuelog_name=ValueLogFileName(dbname_,id);
+      s=env_->RemoveFile(valuelog_name);
+      assert(s.ok());
+    }
   }
-  valueFile.close();
-  return file_data_size;
+
+  if(latest_valuelog_id>0){//delete data that was written in valuelog but not written in WAL
+    auto valuelog_name=ValueLogFileName(dbname_,latest_valuelog_id);
+
+    std::ifstream inFile(valuelog_name, std::ios::in | std::ios::binary);
+    uint64_t value_len,key_len;
+    inFile.seekg(latest_valuelog_offset);
+    inFile.read((char*)(&value_len),sizeof(uint64_t));
+    latest_valuelog_offset+=value_len+sizeof(uint64_t);
+    inFile.seekg(latest_valuelog_offset);
+    inFile.read((char*)(&key_len),sizeof(uint64_t));
+    latest_valuelog_offset+=key_len+sizeof(uint64_t);
+    
+
+    char* buf=new char[latest_valuelog_offset];
+    inFile.seekg(0);
+    inFile.read(buf,latest_valuelog_offset);
+    inFile.close();
+
+    
+    std::ofstream trunc_file(valuelog_name, std::ios::out | std::ios::binary | std::ios::trunc);
+    trunc_file.write(buf,latest_valuelog_offset);
+    trunc_file.close();
+
+    delete buf;
+  }
+
+  for(const auto&id:live_valuelog_ids){//update valuelog_origin
+
+    auto valuelog_name=ValueLogFileName(dbname_,id);
+    std::ifstream inFile(valuelog_name, std::ios::in | std::ios::binary);
+    int data_cnt=0;
+
+    
+    uint64_t value_len,key_len;
+    int cur_offset=0;
+    while(1){
+      inFile.read((char*)(&value_len),sizeof(uint64_t));
+
+      if (inFile.eof()) {
+        break;  // 正常退出条件：到达文件末尾
+      }
+      
+      cur_offset+=value_len+sizeof(uint64_t);
+      inFile.seekg(cur_offset);
+      inFile.read((char*)(&key_len),sizeof(uint64_t));
+      cur_offset+=key_len+sizeof(uint64_t);
+      data_cnt++;
+    }
+
+    valuelog_origin[id]=data_cnt;
+  }
 }
 
 }  // namespace leveldb

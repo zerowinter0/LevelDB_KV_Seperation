@@ -62,7 +62,7 @@ class DBImpl : public DB {
              std::string* value) override;
   Iterator* NewIterator(const ReadOptions&) override;
   Iterator* NewOriginalIterator(const ReadOptions&);
-  Iterator* NewUnorderedIterator(const ReadOptions&) override;
+  Iterator* NewUnorderedIterator(const ReadOptions&,const Slice &lower_key,const Slice &upper_key) override;//upper key not included
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
   bool GetProperty(const Slice& property, std::string* value) override;
@@ -77,6 +77,8 @@ class DBImpl : public DB {
   std::pair<WritableFile*, uint64_t> getNewValuelog();  // use for compaction
   Status ReadValueLog(uint64_t file_id, uint64_t offset,
                       std::string* value) override;
+
+  Status parseTrueValue(Slice* value,std::string* true_value) override;
 
   Status ReadValueLogRange(uint64_t file_id,std::vector<uint64_t> offsets,
                             std::string* value);
@@ -107,8 +109,6 @@ class DBImpl : public DB {
   void RecordReadSample(Slice key);
 
   void InitializeExistingLogs();
-
-  uint64_t ReadFileSize(uint64_t log_number);
 
 
  private:
@@ -185,7 +185,7 @@ class DBImpl : public DB {
   void BackgroundCall();
   void BackgroundCompaction() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   void BackgroundGarbageCollect() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-  void GarbageCollect() EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  void GarbageCollect();
 
   void CleanupCompaction(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
@@ -236,10 +236,10 @@ class DBImpl : public DB {
   WritableFile* valuelogfile_;
   int valuelogfile_offset = 0;
   uint64_t logfile_number_;
-  uint64_t valuelogfile_number_;
+  uint64_t valuelogfile_number_=0;
   log::Writer* log_;
   std::map<uint64_t, uint64_t> oldvaluelog_ids;
-
+  int mem_value_log_number_;//if =0, don't use cache
   Cache* valuelog_cache;
   std::map<uint64_t, uint64_t> valuelog_usage;
   std::map<uint64_t, uint64_t> valuelog_origin;
@@ -268,6 +268,10 @@ class DBImpl : public DB {
   ManualCompaction* manual_compaction_ GUARDED_BY(mutex_);
 
   VersionSet* const versions_ GUARDED_BY(mutex_);
+
+  int use_valuelog_length=5000;
+
+  int value_log_size_;
 
   // Have we encountered a background error in paranoid mode?
   Status bg_error_ GUARDED_BY(mutex_);

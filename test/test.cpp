@@ -5,7 +5,7 @@
 #include "db/filename.h"
 #include <iostream>
 using namespace leveldb;
-std::string dbName="valuelog_test";
+const std::string dbName="valuelog_test";
 
 Status OpenDB(DB **db,Options options=Options(),bool destroy_old_db=true) {
 
@@ -20,7 +20,7 @@ void Corrupt(FileType filetype, int offset, int bytes_to_corrupt,std::string dbn
     // Pick file to corrupt
     std::vector<std::string> filenames;
     auto env_=Env::Default();
-    assert(env_->GetChildren(dbname_, &filenames).ok());
+    ASSERT_TRUE(env_->GetChildren(dbname_, &filenames).ok());
     uint64_t number;
     FileType type;
     std::string fname;
@@ -88,12 +88,10 @@ bool CompareFieldArray(const FieldArray &a, const FieldArray &b) {
 
 bool CompareKey(const std::vector<std::string> a, std::vector<std::string> b) {
   if (a.size() != b.size()){
-      assert(0);
      return false;
   }
   for (size_t i = 0; i < a.size(); ++i) {
     if (a[i] != b[i]){
-        assert(0);
         return false;
     }
   }
@@ -496,6 +494,21 @@ TEST(Test, garbage_collect_test) {
 
     db->CompactRange(nullptr,nullptr);//create garbage
     db->TEST_GarbageCollect();
+    for(int i=0;i<50000;i++){
+        std::string key=std::to_string(i);
+        std::string value;
+        Status s=db->Get(readOptions,key,&value);
+        assert(s.ok());
+        ASSERT_TRUE(values[i]==value);
+    }
+    for(int i=0;i<50000;i++){//make all remaining valuelog worthless, so they will be GC
+        std::string key=std::to_string(i);
+        std::string value;
+        for(int j=0;j<1001;j++){
+            value+=std::to_string(i);
+        }
+        db->Put(writeOptions,key,value);
+    }
     db->CompactRange(nullptr,nullptr);//update version
 
     std::vector<std::string> new_filenames;
@@ -510,13 +523,6 @@ TEST(Test, garbage_collect_test) {
     ASSERT_TRUE(oldest_new_valuelog_id<1000);
     ASSERT_TRUE(oldest_new_valuelog_id>oldest_valuelog_id);//at least one valuelog file should be deleted
 
-    for(int i=0;i<50000;i++){
-        std::string key=std::to_string(i);
-        std::string value;
-        Status s=db->Get(readOptions,key,&value);
-        assert(s.ok());
-        ASSERT_TRUE(values[i]==value);
-    }
     delete db;
 }
 

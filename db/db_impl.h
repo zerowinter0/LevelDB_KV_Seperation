@@ -76,12 +76,9 @@ class DBImpl : public DB {
   
   std::pair<WritableFile*, uint64_t> getNewValuelog();  // use for compaction
   Status ReadValueLog(uint64_t file_id, uint64_t offset,
-                      std::string* value) override;
+                      std::string* value,bool check_crc) override;
 
-  Status parseTrueValue(Slice* value,std::string* true_value) override;
-
-  Status ReadValueLogRange(uint64_t file_id,std::vector<uint64_t> offsets,
-                            std::string* value);
+  Status parseTrueValue(Slice* value,std::string* true_value,bool checkcrc) override;
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -272,6 +269,8 @@ class DBImpl : public DB {
   int use_valuelog_length=5000;
 
   int value_log_size_;
+
+  bool valuelog_crc_;
 
   // Have we encountered a background error in paranoid mode?
   Status bg_error_ GUARDED_BY(mutex_);

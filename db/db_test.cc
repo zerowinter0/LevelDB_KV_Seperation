@@ -420,7 +420,7 @@ class DBTest : public testing::Test {
           switch (ikey.type) {
             case kTypeValue:
               true_val=iter->value();
-              dbfull()->parseTrueValue(&true_val,&res);
+              dbfull()->parseTrueValue(&true_val,&res,false);
               result += res;
               break;
             case kTypeDeletion:

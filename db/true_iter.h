@@ -14,7 +14,7 @@ namespace leveldb {
 
 class DBImpl;
 
-Iterator* NewTrueIterator(DBImpl* db,Iterator* db_iter);
+Iterator* NewTrueIterator(DBImpl* db,Iterator* db_iter,bool check_crc);
 
 }  // namespace leveldb
 

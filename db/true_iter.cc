@@ -36,9 +36,9 @@ class DBTrueIter : public Iterator {
   //     the exact entry that yields this->key(), this->value()
   // (2) When moving backwards, the internal iterator is positioned
   //     just before all entries whose user key == this->key().
-  DBTrueIter(DBImpl* db, Iterator* iter)
+  DBTrueIter(DBImpl* db, Iterator* iter,bool check_crc)
       : 
-        db_(db),iter_(iter){}
+        db_(db),iter_(iter),check_crc_(check_crc){}
 
   DBTrueIter(const DBTrueIter&) = delete;
   DBTrueIter& operator=(const DBTrueIter&) = delete;
@@ -51,11 +51,12 @@ class DBTrueIter : public Iterator {
     return iter_->key();
   }
   Slice value() const override {
-      buf_for_value=std::move(GetAndParseTrueValue(iter_->value()));
-      return Slice(buf_for_value.data(),buf_for_value.size());
+    return Slice(buf_for_value.data(),buf_for_value.size());
   }
   Status status() const override {
-    return iter_->status();
+    if(status_.ok())
+      return iter_->status();
+    else return status_;
   }
 
   void Next() override;
@@ -65,40 +66,60 @@ class DBTrueIter : public Iterator {
   void SeekToLast() override;
 
  private:
-   std::string GetAndParseTrueValue(Slice tmp_value)const{
-    if(tmp_value.size()==0){
-      return "";
-    }
-    std::string str;
-    Status s=db_->parseTrueValue(&tmp_value,&str);
-    return std::move(str);
+   Status GetAndParseTrueValue(Slice tmp_value){
+    Status status=db_->parseTrueValue(&tmp_value,&buf_for_value,check_crc_);
+    if(!status.ok())status_=status;
+    return status;
   }
 
   
   DBImpl* db_;
   Iterator* const iter_;
-  mutable std::string buf_for_value;
+  std::string buf_for_value;
+  Status status_=Status::OK();
+  bool check_crc_;
 };
 void DBTrueIter::Next() {
   iter_->Next();
+  if(iter_->Valid()){
+    Status res=GetAndParseTrueValue(iter_->value());
+    if(!res.ok())Next();
+  }
+  
 }
 void DBTrueIter::Prev() {
   iter_->Prev();
+  if(iter_->Valid()){
+    Status res=GetAndParseTrueValue(iter_->value());
+    if(!res.ok())Prev();
+  }
 }
 
 void DBTrueIter::Seek(const Slice& target) {
   iter_->Seek(target);
+  if(iter_->Valid()){
+    Status res=GetAndParseTrueValue(iter_->value());
+    if(!res.ok())Next();//lowerbound
+  }
 }
 
 void DBTrueIter::SeekToFirst() {
   iter_->SeekToFirst();
+  if(iter_->Valid()){
+    Status res=GetAndParseTrueValue(iter_->value());
+    if(!res.ok())Next();
   }
+}
 void DBTrueIter::SeekToLast() {
   iter_->SeekToLast();
+  if(iter_->Valid()){
+    Status res=GetAndParseTrueValue(iter_->value());
+    if(!res.ok())Prev();
+  }
 }
 
 }  // anonymous namespace
-Iterator* NewTrueIterator(DBImpl* db,Iterator* db_iter) {
-  return new DBTrueIter(db,db_iter);
+Iterator* NewTrueIterator(DBImpl* db,Iterator* db_iter,bool check_crc) {
+  return new DBTrueIter(db,db_iter,check_crc);
 }
 }  // namespace leveldb

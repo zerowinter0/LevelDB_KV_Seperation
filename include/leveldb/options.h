@@ -156,6 +156,10 @@ struct LEVELDB_EXPORT Options {
   int mem_value_log_number=0;//0=don't use valuelog cache
   //memory usage limit for a single unordered iterator
   float GC_THRESHOLD=0.6;
+  //if valuelog_crc is on, every k-v pair using valuelog_crc will use crc in valuelog_crc
+  bool valuelog_crc=false;
+  //use GC for valuelog
+  bool valuelog_gc=true;
 };
 
 // Options that control read operations
@@ -180,6 +184,8 @@ struct LEVELDB_EXPORT ReadOptions {
   const Snapshot* snapshot = nullptr;
 
   int max_unorder_iter_memory_usage=64<<20; //32MB
+
+  bool verify_checksums_for_valuelog=false;
 };
 
 // Options that control write operations

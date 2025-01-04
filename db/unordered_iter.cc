@@ -17,6 +17,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "port/port.h"
+#include "util/crc32c.h"
 #include <fstream>
 #include <iostream>
 
@@ -40,9 +41,10 @@ class UnorderedIter : public Iterator {
   //     just before all entries whose user key == this->key().
   enum IterPos {Left,Mid,Right};
 
-  UnorderedIter(DBImpl* db, Iterator* iter,std::string db_name,int max_unorder_iter_memory_usage,const Slice &lower_key,const Slice &upper_key,const Comparator* user_comparator)
+  UnorderedIter(DBImpl* db, Iterator* iter,std::string db_name,ReadOptions readOptions,const Slice &lower_key,const Slice &upper_key,const Comparator* user_comparator)
       : 
-        db_(db),iter_(iter),db_name_(db_name),max_unorder_iter_memory_usage_(max_unorder_iter_memory_usage),lower_key_(lower_key),upper_key_(upper_key),comparator_(user_comparator){
+        db_(db),iter_(iter),db_name_(db_name),max_unorder_iter_memory_usage_(readOptions.max_unorder_iter_memory_usage),check_crc_(readOptions.verify_checksums_for_valuelog),
+        lower_key_(lower_key),upper_key_(upper_key),comparator_(user_comparator){
           first_one=true;
           if(lower_key_.empty())iter_->SeekToFirst();
           else iter_->Seek(lower_key);
@@ -73,7 +75,9 @@ class UnorderedIter : public Iterator {
       return now_value;
   }
   Status status() const override {
-    return iter_->status();
+    if(status_.ok())
+      return iter_->status();
+    else return status_;
   }
 
   void Next() override;
@@ -81,7 +85,6 @@ class UnorderedIter : public Iterator {
   void Seek(const Slice& target) override;
   void SeekToFirst() override;
   void SeekToLast() override;
-
  private:
    std::pair<uint64_t,uint64_t> GetAndParseValue(Slice tmp_value)const{
     tmp_value.remove_prefix(1);
@@ -97,7 +100,7 @@ class UnorderedIter : public Iterator {
     return value.size()&&value.data()[0]==(0x01);
   }
 
-  void MyReadValuelog(const uint64_t& offset){
+  bool MyReadValuelog(const uint64_t& offset){
     uint64_t value_len,key_len;
     current_file->seekg(offset);
     current_file->read((char*)(&value_len),sizeof(uint64_t));
@@ -119,8 +122,20 @@ class UnorderedIter : public Iterator {
 
     current_file->read(buf_for_now_key,key_len);
 
+    if(check_crc_){
+      uint32_t crc_value;
+      current_file->read((char*)(&crc_value),sizeof(uint32_t));
+      uint32_t cal_crc_value=crc32c::Value(buf_for_now_value,value_len);
+      cal_crc_value=crc32c::Extend(cal_crc_value,buf_for_now_key,key_len);
+      if(cal_crc_value!=crc_value){
+        status_=Status::Corruption("valuelog crc check fail");
+        return false;
+      }
+    }
+
     now_value=Slice(buf_for_now_value,value_len);
     now_key=Slice(buf_for_now_key,key_len);
+    return true;
   }
 
   bool keyGreaterThanRequire(){
@@ -151,6 +166,8 @@ class UnorderedIter : public Iterator {
   std::map<uint64_t,std::vector<uint64_t>>::iterator valuelog_map_iter;
   int vec_idx=-1;
   int max_unorder_iter_memory_usage_;
+  bool check_crc_;
+  Status status_=Status::OK();
 
   const Slice lower_key_;
   const Slice upper_key_;
@@ -208,7 +225,7 @@ void UnorderedIter::Next() {
   }
 
   int offset=valuelog_map_iter->second[vec_idx++];
-  MyReadValuelog(offset);
+  bool res=MyReadValuelog(offset);
 
   if(vec_idx>=valuelog_map_iter->second.size()){
     valuelog_map_iter++;
@@ -235,7 +252,7 @@ void UnorderedIter::Next() {
     
   }
 
-  
+  if(!res)Next();//ignore fault like other iter did
 
 }
 void UnorderedIter::Prev() {
@@ -254,7 +271,9 @@ void UnorderedIter::SeekToLast() {
 }
 
 }  // anonymous namespace
-Iterator* NewUnorderedIter(DBImpl* db,Iterator* db_iter,std::string db_name,int max_unorder_iter_memory_usage,const Slice &lower_key,const Slice &upper_key,const Comparator* user_comparator) {
-  return new UnorderedIter(db,db_iter,db_name,max_unorder_iter_memory_usage,lower_key,upper_key,user_comparator);
+Iterator* NewUnorderedIter(DBImpl* db,Iterator* db_iter,std::string db_name,ReadOptions readOptions,
+  const Slice &lower_key,const Slice &upper_key,const Comparator* user_comparator) {
+  return new UnorderedIter(db,db_iter,db_name,readOptions,
+  lower_key,upper_key,user_comparator);
 }
 }  // namespace leveldb

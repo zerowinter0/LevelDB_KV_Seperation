@@ -83,8 +83,9 @@ Version::~Version() {
     }
   }
 
+  //update related valuelog's ref
   for(auto valuelog_name:old_valuelog_names){
-    vset_->valuelogmap_mutex.Lock();
+    vset_->valuelogmap_mutex.Lock();//lock to visit old_valuelog_map
     int res=vset_->old_valuelog_map[valuelog_name]--;
     if(res==1){
       vset_->env_->RemoveFile(valuelog_name);

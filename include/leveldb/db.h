@@ -7,19 +7,19 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <vector>
 
 #include "leveldb/export.h"
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
-#include <vector>
 
 namespace leveldb {
 
 // Update CMakeLists.txt if you change these
 static const int kMajorVersion = 1;
 static const int kMinorVersion = 23;
-using Field=std::pair<Slice,Slice>;
-using FieldArray=std::vector<std::pair<Slice, Slice>>;
+using Field = std::pair<std::string, std::string>;
+using FieldArray = std::vector<std::pair<std::string, std::string>>;
 
 struct Options;
 struct ReadOptions;
@@ -90,41 +90,32 @@ class LEVELDB_EXPORT DB {
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) = 0;
 
-  // virtual std::string SerializeValue(const FieldArray& fields);
-
-  // // 反序列化为字段数组
-  // virtual void DeserializeValue(const std::string& value_str,FieldArray* res);
-
-  // virtual Status Put_with_fields(const WriteOptions& options, const Slice& key,const FieldArray& fields);
-
-  // virtual Status Get_with_fields(const ReadOptions& options, const Slice& key,
-  //            FieldArray* fields);
-  
-  // virtual Status Get_keys_by_field(const ReadOptions& options, const Field field,std::vector<std::string> *keys);
-
-  // virtual std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> WriteValueLog(std::vector<Slice> value){
-  //   assert(0);
-  //   std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>> v;
-  //   return v;
-  // }
-  virtual std::vector<std::pair<uint64_t,uint64_t>> WriteValueLog(std::vector<std::pair<Slice,Slice>> value){
+  // write a batch of k-v to a valuelog
+  // return the file_id and offset in valuelog as a pair for every k-v
+  virtual std::vector<std::pair<uint64_t, uint64_t>> WriteValueLog(
+      std::vector<std::pair<Slice, Slice>> value) {
     assert(0);
-    std::vector<std::pair<uint64_t,uint64_t>> v;
+    std::vector<std::pair<uint64_t, uint64_t>> v;
     return v;
   }
 
-  virtual void addNewValueLog(){assert(0);}
+  // add a new valuelog for database, should be only used while holding mutex_
+  virtual void addNewValueLog() { assert(0); }
 
-  virtual Status ReadValueLog(uint64_t file_id, uint64_t offset, std::string* value,bool check_crc){
-    assert(0);  // Not implemented
-    return Status::Corruption("not imp");
-  }
-
-  virtual Status parseTrueValue(Slice* value,std::string* true_value,bool checkcrc){
+  // read value from a valuelog
+  // should be only used while not holding mutex_
+  virtual Status ReadValueLog(uint64_t file_id, uint64_t offset,
+                              std::string* value, bool check_crc) {
     assert(0);
     return Status::Corruption("not imp");
   }
 
+  // parse the real value from a value provided by the lsm-tree
+  virtual Status parseTrueValue(Slice* value, std::string* true_value,
+                                bool checkcrc) {
+    assert(0);
+    return Status::Corruption("not imp");
+  }
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
@@ -134,7 +125,13 @@ class LEVELDB_EXPORT DB {
   // The returned iterator should be deleted before this db is deleted.
   virtual Iterator* NewIterator(const ReadOptions& options) = 0;
 
-  virtual Iterator* NewUnorderedIterator(const ReadOptions&,const Slice &lower_key,const Slice &upper_key){
+  // Similar to NewIterator().
+  // return all data in: [lower_key, upper_key)
+  // the data returned by NewUnorderedIterator() is unordered.
+  // Seek, SeekToLast, SeekToFirst is invalid for this.
+  virtual Iterator* NewUnorderedIterator(const ReadOptions&,
+                                         const Slice& lower_key,
+                                         const Slice& upper_key) {
     assert(0);
     return nullptr;
   };
@@ -189,10 +186,11 @@ class LEVELDB_EXPORT DB {
   // Therefore the following call will compact the entire database:
   //    db->CompactRange(nullptr, nullptr);
   virtual void CompactRange(const Slice* begin, const Slice* end) = 0;
-  virtual void TEST_GarbageCollect(){};
 
-  
-
+  // trigger a manual garbagecollection.
+  // it will only return when the garbagecollection is finished.
+  // might be a very time-consuming operation
+  virtual void manual_GarbageCollect() {};
 };
 
 // Destroy the contents of the specified database.

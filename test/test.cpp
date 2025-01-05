@@ -5,7 +5,7 @@
 #include "db/filename.h"
 #include <iostream>
 using namespace leveldb;
-std::string dbName="valuelog_test";
+const std::string dbName="valuelog_test";
 
 Status OpenDB(DB **db,Options options=Options(),bool destroy_old_db=true) {
 
@@ -20,7 +20,7 @@ void Corrupt(FileType filetype, int offset, int bytes_to_corrupt,std::string dbn
     // Pick file to corrupt
     std::vector<std::string> filenames;
     auto env_=Env::Default();
-    assert(env_->GetChildren(dbname_, &filenames).ok());
+    ASSERT_TRUE(env_->GetChildren(dbname_, &filenames).ok());
     uint64_t number;
     FileType type;
     std::string fname;
@@ -88,12 +88,10 @@ bool CompareFieldArray(const FieldArray &a, const FieldArray &b) {
 
 bool CompareKey(const std::vector<std::string> a, std::vector<std::string> b) {
   if (a.size() != b.size()){
-      assert(0);
      return false;
   }
   for (size_t i = 0; i < a.size(); ++i) {
     if (a[i] != b[i]){
-        assert(0);
         return false;
     }
   }
@@ -247,28 +245,46 @@ TEST(Test, fields_simple_test) {
         std::cerr << "open db failed" << std::endl;
         abort();
     }
-    std::string key1 = "k_1";
-    
-    FieldArray fields1 = {
-        {"name", "Customer#000000001"},
-        {"address", "IVhzIApeRb"}, 
-        {"phone", "25-989-741-2988"}
-    };
+    std::vector<FieldArray> values;
 
-    auto value1=SerializeValue(fields1);
+    for(int i=0;i<300;i++){
+        auto key=GenKeyByNum(i,300);
+        std::string true_value;
+        FieldArray value;
+        if(i%5){
+            value.push_back({key,std::to_string(rand()%10000)});
+            value.push_back({std::to_string(rand()%10000),std::to_string(rand()%10000)});
+            value.push_back({std::to_string(rand()%10000),std::to_string(rand()%10000)});
+            value.push_back({std::to_string(rand()%10000),std::to_string(rand()%10000)});
+            value.push_back({std::to_string(rand()%10000),std::to_string(rand()%10000)});
+            values.push_back(value);
+            true_value=SerializeValue(value);
+            {
+                FieldArray tmpvalue;
+                ASSERT_TRUE(DeserializeValue(true_value,&tmpvalue).ok());
+                ASSERT_TRUE(tmpvalue==value);
+            }
+        }
+        else true_value=std::to_string(rand()%10000);
+        db->Put(writeOptions,key,true_value);
+    }
 
-    db->Put(WriteOptions(), key1, value1);
+    int cnt=0;
+    for(int i=0;i<300;i++){
+        auto key=GenKeyByNum(i,300);
+        std::string true_value;
+        FieldArray value;
+        db->Get(readOptions,key,&true_value);
 
-    std::string value_ret;
-    FieldArray res1;
-
-    db->Get(ReadOptions(), key1, &value_ret);
-    DeserializeValue(value_ret, &res1);
-    ASSERT_TRUE(CompareFieldArray(fields1, res1));
-
-    db->Delete(WriteOptions(),key1);
+        if(i%5){
+            ASSERT_TRUE(DeserializeValue(true_value,&value).ok());
+            ASSERT_TRUE(values[cnt++]==value);
+        }
+        else{
+            ASSERT_FALSE(DeserializeValue(true_value,&value).ok());
+        }
+    }
     delete db;
-
 }
 
 TEST(Test, get_keys_by_field_test) {
@@ -282,6 +298,7 @@ TEST(Test, get_keys_by_field_test) {
     std::vector<std::string> target_keys;
     for(int i=0;i<10000;i++){
       std::string key=std::to_string(rand()%10000)+"_"+std::to_string(i);//random for generate nonincreasing keys
+      std::string value;
       FieldArray fields={
         {"name", key},
         {"address", std::to_string(rand()%7)}, 
@@ -290,9 +307,16 @@ TEST(Test, get_keys_by_field_test) {
       if(rand()%5==0){
         fields[0].second="special_key";
         target_keys.push_back(key);
+        value=SerializeValue(fields);
+      }
+      else if(rand()%123==0){
+        value=std::to_string(rand()%10000);
+      }
+      else{
+        value=SerializeValue(fields);
       }
       keys.push_back(key);
-      db->Put(WriteOptions(),key,SerializeValue(fields));
+      db->Put(WriteOptions(),key,value);
     }
     std::sort(target_keys.begin(),target_keys.end());
     std::vector<std::string> key_res;
@@ -451,6 +475,69 @@ TEST(Test, valuelog_corruption_test) {
     delete db;
 }
 
+TEST(Test, valuelog_whole_file_corruption_test) {
+    DB *db;
+    WriteOptions writeOptions;
+    ReadOptions readOptions;
+    readOptions.verify_checksums_for_valuelog=true;
+    Options dbOptions;
+    dbOptions.use_valuelog_length=100;
+    dbOptions.valuelog_gc=false;
+    dbOptions.value_log_size=1<<26;
+    dbOptions.valuelog_crc=true;
+    //a record size:8+4+8+4*5000+(4)=20024
+    //64*1024*1024/20024=3351.42
+    if(OpenDB(&db,dbOptions).ok() == false) {
+        std::cerr << "open db failed" << std::endl;
+        abort();
+    }
+    //test Put
+    std::vector<std::string> values;
+    for(int i=0;i<5000;i++){
+        std::string key=GenKeyByNum(i,5000);
+        std::string value;
+        for(int j=0;j<5000;j++){
+            value+=key;
+        }
+        values.push_back(value);
+        db->Put(writeOptions,key,value);
+    }
+    for(int i=0;i<5000;i++){  
+        std::string key=GenKeyByNum(i,5000);
+        std::string value;
+        Status s=db->Get(readOptions,key,&value);
+        assert(s.ok());
+        ASSERT_TRUE(values[i]==value);
+    }
+
+    std::vector<std::string> files;
+    auto env_=Env::Default();
+    ASSERT_TRUE(env_->GetChildren(dbName, &files).ok());
+    for(auto file:files){
+        uint64_t number;
+        FileType fileType;
+        ParseFileName(file,&number,&fileType);
+        if(fileType==FileType::kValueLogFile){
+            env_->RemoveFile(dbName+ "/" + file);
+        }
+    }
+
+    //the second record is corrupt,
+    for(int i=0;i<5000;i++){
+        std::string key=GenKeyByNum(i,5000);
+        std::string value;
+        ASSERT_FALSE(db->Get(readOptions,key,&value).ok());
+    }
+
+    auto iter=db->NewIterator(readOptions);
+    iter->SeekToFirst();
+    ASSERT_FALSE(iter->Valid());
+
+    delete iter;
+    delete db;
+}
+
+
 
 TEST(Test, garbage_collect_test) {
     DB *db;
@@ -495,7 +582,22 @@ TEST(Test, garbage_collect_test) {
     ASSERT_TRUE(oldest_valuelog_id<1000);
 
     db->CompactRange(nullptr,nullptr);//create garbage
-    db->TEST_GarbageCollect();
+    db->manual_GarbageCollect();
+    for(int i=0;i<50000;i++){
+        std::string key=std::to_string(i);
+        std::string value;
+        Status s=db->Get(readOptions,key,&value);
+        assert(s.ok());
+        ASSERT_TRUE(values[i]==value);
+    }
+    for(int i=0;i<50000;i++){//make all remaining valuelog worthless, so they will be GC
+        std::string key=std::to_string(i);
+        std::string value;
+        for(int j=0;j<1001;j++){
+            value+=std::to_string(i);
+        }
+        db->Put(writeOptions,key,value);
+    }
     db->CompactRange(nullptr,nullptr);//update version
 
     std::vector<std::string> new_filenames;
@@ -510,13 +612,6 @@ TEST(Test, garbage_collect_test) {
     ASSERT_TRUE(oldest_new_valuelog_id<1000);
     ASSERT_TRUE(oldest_new_valuelog_id>oldest_valuelog_id);//at least one valuelog file should be deleted
 
-    for(int i=0;i<50000;i++){
-        std::string key=std::to_string(i);
-        std::string value;
-        Status s=db->Get(readOptions,key,&value);
-        assert(s.ok());
-        ASSERT_TRUE(values[i]==value);
-    }
     delete db;
 }
 
@@ -586,7 +681,15 @@ TEST(Test, recovery_test){
     }
     ASSERT_TRUE(oldest_valuelog_id<1000);
     db->CompactRange(nullptr,nullptr);//create garbage
-    db->TEST_GarbageCollect();
+    db->manual_GarbageCollect();
+    for(int i=0;i<5000;i++){
+        std::string key=GenKeyByNum(i,5000);
+        std::string value;
+        for(int j=0;j<5000;j++){
+            value+=key;
+        }
+        db->Put(writeOptions,key,value);
+    }
     db->CompactRange(nullptr,nullptr);//update version
 
     std::vector<std::string> new_filenames;

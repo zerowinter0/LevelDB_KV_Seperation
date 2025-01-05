@@ -127,6 +127,9 @@ class MemTableInserter : public WriteBatch::Handler {
     sequence_++;
   }
 };
+
+// will change the order in the writebatch!
+// use batch_insert to improve performance
 class ValueLogInserter : public WriteBatch::Handler {
   public:
   WriteBatch writeBatch_;
@@ -188,6 +191,8 @@ class ValueLogChecker : public WriteBatch::Handler {
     keys.push_back(key);
   }
 
+  //check if all data in the writebatch is different from the given key (the key gc is searching)
+  //if find a key was the same to target key, then all keys must be scaned again.
   void CheckValid(){
     int len=keys.size();
     if(!len)return;

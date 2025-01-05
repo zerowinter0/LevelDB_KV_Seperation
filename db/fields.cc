@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_FIELDS_H_
-#define STORAGE_LEVELDB_INCLUDE_FIELDS_H_
 
 #include <string>
 
@@ -21,43 +19,48 @@ namespace leveldb {
         return res_;
     }
 
-    void DeserializeValue(const std::string& value_str,FieldArray* res){
+    Status DeserializeValue(const std::string& value_str,FieldArray* res){
         Slice slice=Slice(value_str.c_str());
         uint64_t siz;
         bool tmpres=GetVarint64(&slice,&siz);
-        assert(tmpres);
+        if(!tmpres)return Status::Corruption("Deserialize fail");
         res->clear();
         for(int i=0;i<siz;i++){
             Slice value_name;
             Slice value;
             tmpres=GetLengthPrefixedSlice(&slice,&value_name);
-            assert(tmpres);
+            if(!tmpres)return Status::Corruption("Deserialize fail");
             tmpres=GetLengthPrefixedSlice(&slice,&value);
-            assert(tmpres);
-            res->emplace_back(value_name,value);
+            if(!tmpres)return Status::Corruption("Deserialize fail");
+            res->emplace_back(std::string(value_name.data(),value_name.size()),std::string(value.data(),value.size()));
         }
+        return Status::OK();
     }
 
     Status Get_keys_by_field(DB *db,const ReadOptions& options, const Field field,std::vector<std::string> *keys){
         auto it=db->NewUnorderedIterator(options,Slice(),Slice());
         keys->clear();
-        while(it->Valid()){
+        while(it->Valid()&&it->status().ok()){
             auto val=it->value();
             FieldArray arr;
             auto str_val=std::string(val.data(),val.size());
-            DeserializeValue(str_val,&arr);
-            for(auto pr:arr){
-            if(pr.first==field.first&&pr.second==field.second){
-                Slice key=it->key();
-                keys->push_back(std::string(key.data(),key.size()));
-                break;
-            }
-            }
+            auto res=DeserializeValue(str_val,&arr);
+            if(res.ok())
+                for(const auto &pr:arr){
+                if(pr.first==field.first&&pr.second==field.second){
+                    Slice key=it->key();
+                    keys->push_back(std::string(key.data(),key.size()));
+                    break;
+                }
+                }
             it->Next();
+        }
+        if(it->Valid()&&!it->status().ok()){
+            auto res=it->status();
+            delete it;
+            return res;
         }
         delete it;
         return Status::OK();
     }
 }
-
-#endif  // STORAGE_LEVELDB_INCLUDE_FIELDS_H_

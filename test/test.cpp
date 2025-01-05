@@ -235,7 +235,7 @@ TEST(Test, unorder_valuelog_iterator_test) {
 }
 
 
-TEST(Test, fields_simple_test) {
+TEST(Test, fields_test) {
     DB *db;
     WriteOptions writeOptions;
     ReadOptions readOptions;

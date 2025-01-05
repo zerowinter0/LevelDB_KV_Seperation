@@ -59,8 +59,8 @@ class UnorderedIter : public Iterator {
       current_file->close();
       delete current_file;
     }
-    if(buf_for_now_key)delete buf_for_now_key;
-    if(buf_for_now_value)delete buf_for_now_value;
+    if(buf_for_now_key)delete []buf_for_now_key;
+    if(buf_for_now_value)delete []buf_for_now_value;
     delete iter_; 
   }
   bool Valid() const override { return mode!=2; }
@@ -103,7 +103,7 @@ class UnorderedIter : public Iterator {
 
     if(value_len>buf_for_now_value_size){
       buf_for_now_value_size=value_len;
-      if(buf_for_now_value)delete buf_for_now_value;
+      if(buf_for_now_value)delete []buf_for_now_value;
       buf_for_now_value=new char[value_len];
     }
     current_file->read(buf_for_now_value,value_len);
@@ -112,7 +112,7 @@ class UnorderedIter : public Iterator {
 
     if(key_len>buf_for_now_key_size){
       buf_for_now_key_size=key_len;
-      if(buf_for_now_key)delete buf_for_now_key;
+      if(buf_for_now_key)delete []buf_for_now_key;
       buf_for_now_key=new char[key_len];
     }
 

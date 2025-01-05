@@ -731,6 +731,10 @@ void DBImpl::MaybeScheduleGarbageCollect() {
     gc_mutex_.Lock();
     background_garbage_collect_scheduled_ = true;
     gc_mutex_.Unlock();
+    if(gc_thread){
+      if(gc_thread->joinable())gc_thread->join();
+      delete gc_thread;
+    }
     gc_thread = new std::thread(&DBImpl::BGWorkGC, this);
   }
 }
@@ -1723,7 +1727,7 @@ std::vector<std::pair<uint64_t, uint64_t>> DBImpl::WriteValueLog(
     valuelog_usage[valuelogfile_number_] += res.size();
     valuelog_origin[valuelogfile_number_] += res.size();
   }
-  delete buf;
+  delete []buf;
   return res;
 }
 
@@ -1795,7 +1799,7 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
       uint64_t crc_offset = offset + total_len;
 
       if (totalSize < crc_offset) {
-        delete buf;
+        delete []buf;
         return Status::Corruption("get value for valuelog fail:parse fail");
       }
 
@@ -1807,16 +1811,16 @@ Status DBImpl::ReadValueLog(uint64_t file_id, uint64_t offset,
       uint32_t cal_crc_value = crc32c::Value(buf, value_len);
       cal_crc_value = crc32c::Extend(cal_crc_value, key_buf, key_len);
       if (cal_crc_value != crc_value) {
-        delete key_buf;
-        delete buf;
+        delete []key_buf;
+        delete []buf;
         return Status::Corruption("get value for valuelog fail:crc check fail");
       }
 
-      delete key_buf;
+      delete []key_buf;
     }
     *value = std::string(buf, value_len);
 
-    delete buf;
+    delete []buf;
     return Status::OK();
   }
 
@@ -1946,14 +1950,14 @@ void DBImpl::GarbageCollect() {
 
       if (status.IsNotFound()) {
         // not newest record, simply ignore
-        delete key_buf;
+        delete []key_buf;
         mutex_.Lock();
         valuelog_finding_key = Slice();
         lock_valuelog_key_mutex_cond_.SignalAll();
         mutex_.Unlock();
         continue;
       } else if (!status.ok()) {  // handle error:skip this valuelog
-        delete key_buf;
+        delete []key_buf;
         mutex_.Lock();
         valuelog_finding_key = Slice();
         lock_valuelog_key_mutex_cond_.SignalAll();
@@ -1963,7 +1967,7 @@ void DBImpl::GarbageCollect() {
       } else {
         if (stored_value.data()[0] == (char)(0x00)) {
           // not newest record, simply ignore
-          delete key_buf;
+          delete []key_buf;
           mutex_.Lock();
           valuelog_finding_key = Slice();
           lock_valuelog_key_mutex_cond_.SignalAll();
@@ -1978,7 +1982,7 @@ void DBImpl::GarbageCollect() {
                                          stored_valuelog_id, stored_offset);
 
       if (!status.ok()) {  // handle error:skip this valuelog
-        delete key_buf;
+        delete []key_buf;
         mutex_.Lock();
         valuelog_finding_key = Slice();
         lock_valuelog_key_mutex_cond_.SignalAll();
@@ -1989,7 +1993,7 @@ void DBImpl::GarbageCollect() {
 
       if (stored_valuelog_id != cur_log_number || stored_offset != tmp_offset) {
         // not newest record, simply ignore
-        delete key_buf;
+        delete []key_buf;
         mutex_.Lock();
         valuelog_finding_key = Slice();
         lock_valuelog_key_mutex_cond_.SignalAll();
@@ -2011,8 +2015,8 @@ void DBImpl::GarbageCollect() {
         cal_crc_value = crc32c::Extend(cal_crc_value, key_buf, key_len);
         if (cal_crc_value != crc_value) {
           // the valuelog can't be delete (because something is wrong), so break
-          delete value_buf;
-          delete key_buf;
+          delete []value_buf;
+          delete []key_buf;
           mutex_.Lock();
           valuelog_finding_key = Slice();
           lock_valuelog_key_mutex_cond_.SignalAll();
@@ -2033,8 +2037,8 @@ void DBImpl::GarbageCollect() {
 
       gc_bytes += key_len + val_len;
 
-      delete value_buf;
-      delete key_buf;
+      delete []value_buf;
+      delete []key_buf;
     }
     if (valuelog_wrong) {
       // if something wrong with valuelog, it can't be delete
@@ -2245,7 +2249,7 @@ void DBImpl::InitializeExistingLogs() {
     trunc_file.write(buf, latest_valuelog_offset);
     trunc_file.close();
 
-    delete buf;
+    delete []buf;
   }
 
   // step 4: update valuelog_origin by scan every valuelog

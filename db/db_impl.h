@@ -41,18 +41,6 @@ class DBImpl : public DB {
 
   ~DBImpl() override;
 
-  //   // 序列化为字符串
-  // std::string SerializeValue(const FieldArray& fields)override;
-
-  // // 反序列化为字段数组
-  // FieldArray ParseValue(const std::string& value_str)override;
-
-  // Status Put_with_fields(const WriteOptions& options, const Slice& key,const
-  // FieldArray& fields)override;
-
-  // Status Get_with_fields(const ReadOptions& options, const Slice& key,
-  //            FieldArray* fields)override;
-
   // Implementations of the DB interface
   Status Put(const WriteOptions&, const Slice& key,
              const Slice& value) override;
@@ -68,8 +56,6 @@ class DBImpl : public DB {
   bool GetProperty(const Slice& property, std::string* value) override;
   void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) override;
   void CompactRange(const Slice* begin, const Slice* end) override;
-  // std::vector<std::pair<uint64_t,std::pair<uint64_t,uint64_t>>>
-  // WriteValueLog(std::vector<Slice> value)override;
   std::vector<std::pair<uint64_t, uint64_t>> WriteValueLog(
       std::vector<std::pair<Slice, Slice>> value) override;
   void addNewValueLog() override EXCLUSIVE_LOCKS_REQUIRED(mutex_);
@@ -88,7 +74,7 @@ class DBImpl : public DB {
   // Force current memtable contents to be compacted.
   Status TEST_CompactMemTable();
 
-  void TEST_GarbageCollect() override;
+  void manual_GarbageCollect() override;
 
 
   // Return an internal iterator over the current state of the database.
@@ -236,9 +222,12 @@ class DBImpl : public DB {
   uint64_t valuelogfile_number_=0;
   log::Writer* log_;
   std::map<uint64_t, uint64_t> oldvaluelog_ids;
-  int mem_value_log_number_;//if =0, don't use cache
+  int mem_value_log_number_;//if =0, don't use cache for valuelog
   Cache* valuelog_cache;
+  
+  // count of record live in a valuelog
   std::map<uint64_t, uint64_t> valuelog_usage;
+  // count of record written in a valuelog
   std::map<uint64_t, uint64_t> valuelog_origin;
 
   std::thread* gc_thread=nullptr;
@@ -266,10 +255,12 @@ class DBImpl : public DB {
 
   VersionSet* const versions_ GUARDED_BY(mutex_);
 
+  //better to be larger then 500.
   int use_valuelog_length=5000;
 
   int value_log_size_;
 
+  // if on, the database will use crc check to protect valuelog from any abnormal byte
   bool valuelog_crc_;
 
   // Have we encountered a background error in paranoid mode?

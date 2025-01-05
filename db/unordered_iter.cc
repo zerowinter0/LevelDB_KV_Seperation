@@ -26,19 +26,15 @@ namespace leveldb {
 namespace {
 
 
-
-// Memtables and sstables that make the DB representation contain
-// (userkey,seq,type) => uservalue entries.  UnorderedIter
-// combines multiple entries for the same userkey found in the DB
-// representation into a single entry while accounting for sequence
-// numbers, deletion markers, overwrites, etc.
+// DBTrueIter is similar to true_iter.
+// The following are the unique points of unordered_iter
+// 1.the data return by it will be unordered.
+// 2.use its own memory space instead of valuelog cache.
+// 3.In most cases, it can save more memory, be faster, and more stable.
+// 4.Can not use Seek, SeekToFirst and SeekToLast, use lower_key and upper_key instead.
+// 5.return all data in: [lower_key, upper_key)
 class UnorderedIter : public Iterator {
  public:
-  // Which direction is the iterator currently moving?
-  // (1) When moving forward, the internal iterator is positioned at
-  //     the exact entry that yields this->key(), this->value()
-  // (2) When moving backwards, the internal iterator is positioned
-  //     just before all entries whose user key == this->key().
   enum IterPos {Left,Mid,Right};
 
   UnorderedIter(DBImpl* db, Iterator* iter,std::string db_name,ReadOptions readOptions,const Slice &lower_key,const Slice &upper_key,const Comparator* user_comparator)

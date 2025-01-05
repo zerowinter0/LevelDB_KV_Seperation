@@ -10,9 +10,11 @@
 #include "leveldb/db.h"
 
 namespace leveldb {
+    //Serialize vector<string,string> to a single string
     std::string SerializeValue(const FieldArray& fields);
 
-    void DeserializeValue(const std::string& value_str,FieldArray* res);
+    //Deserialize vector<string,string> from a single string
+    Status DeserializeValue(const std::string& value_str,FieldArray* res);
 
     Status Get_keys_by_field(DB *db,const ReadOptions& options, const Field field,std::vector<std::string> *keys);
 }
